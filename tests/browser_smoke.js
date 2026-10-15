@@ -19,7 +19,7 @@ const assert = require("node:assert/strict");
     }, numbers, { timeout: 15000 });
   }
   async function clearAll() {
-    await page.locator("#info-clear").click();
+    if (await page.locator("#info-clear").isEnabled()) await page.locator("#info-clear").click();
     await page.locator("#clear-filter").click();
     await rowsEqual([1, 2]);
   }
