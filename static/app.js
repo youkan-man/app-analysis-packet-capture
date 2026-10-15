@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const root = $("condition-root");
   const presets = document.querySelectorAll("[data-preset]");
-  const storage = { current: "packetcap.current", saved: "packetcap.filters", builder: "packetcap.builder" };
+  const storage = { current: "packetcap.current", saved: "packetcap.filters", builder: "packetcap.builder", info: "packetcap.info" };
   const defaultRule = () => ({ type: "rule", field: "ip.addr", operator: "==", kind: "address", value: "", negate: false });
   const defaultBuilder = () => ({ type: "group", join: "and", children: [defaultRule()], negate: false });
   const parseStored = (key, fallback) => {
@@ -18,6 +18,7 @@
   };
   if (!state.builder || state.builder.type !== "group") state.builder = defaultBuilder();
   if (!Array.isArray(state.saved)) state.saved = [];
+  let infoUi;
 
   function dom(tag, className = "", text = "") {
     const element = document.createElement(tag);
@@ -134,6 +135,8 @@
     status("パケットを解析中...", "busy");
     const id = state.active.id;
     const params = new URLSearchParams({ page: state.page, limit: state.pageSize, filter: state.filter });
+    const infoQuery = infoUi?.getQuery();
+    if (infoQuery) params.set("info", infoQuery);
     try {
       const result = await api("/api/captures/" + encodeURIComponent(id) + "/packets?" + params, { signal: controller.signal });
       if (state.listController !== controller || state.active?.id !== id) return;
@@ -171,7 +174,7 @@
     }
     $("packet-empty").hidden = state.packets.length > 0;
     $("packet-empty").textContent = state.active
-      ? (state.filter ? "一致するパケットはありません。" : "パケットがありません。")
+      ? ((state.filter || infoUi?.getQuery()) ? "一致するパケットはありません。" : "パケットがありません。")
       : "PCAP / PCAPNG を開くとパケットが表示されます。";
     const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
     $("page-number").textContent = state.page + " / " + pages;
@@ -236,6 +239,7 @@
         const line = dom("div", "detail-leaf");
         line.append(dom("span", "detail-key", key + ": "));
         line.append(dom("span", "detail-value", String(value ?? "")));
+        infoUi.attachDetailField(line, key, value);
         parent.append(line);
       }
     }
