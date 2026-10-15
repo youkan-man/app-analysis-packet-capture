@@ -332,6 +332,14 @@
   ];
   const KINDS = [["string", "文字列"], ["number", "数値"], ["address", "IP/MAC"]];
   let fieldTimer = null;
+  const fieldTypes = new Map();
+  function inferredKind(fieldName) {
+    const type = fieldTypes.get(fieldName);
+    if (!type) return null;
+    if (/^FT_(?:IPV4|IPV6|ETHER|EUI64|FCWWN|GUID)/i.test(type)) return "address";
+    if (/^FT_(?:U?INT|BOOLEAN|FLOAT|DOUBLE|FRAMENUM|RELATIVE_TIME|ABSOLUTE_TIME)/i.test(type)) return "number";
+    return "string";
+  }
   const suggestions = dom("datalist");
   suggestions.id = "field-suggestions";
   document.body.append(suggestions);
@@ -342,6 +350,7 @@
       for (const entry of result.items.slice(0, 40)) {
         const option = dom("option");
         option.value = entry.name;
+        fieldTypes.set(entry.name, entry.type);
         option.label = entry.label + " (" + entry.type + ")";
         suggestions.append(option);
       }
@@ -388,6 +397,16 @@
         fieldTimer = setTimeout(() => fillSuggestions(field.value), 200);
       });
       field.addEventListener("focus", () => fillSuggestions(field.value));
+      field.addEventListener("change", () => {
+        node.field = field.value.trim();
+        const kind = inferredKind(node.field);
+        if (kind && !["contains", "matches"].includes(node.operator)) {
+          node.kind = kind;
+          const select = wrap.querySelector(".rule-kind");
+          if (select) select.value = kind;
+        }
+        persistBuilder();
+      });
       const neg = dom("label", "negate-wrap");
       const negInput = dom("input"); negInput.type = "checkbox"; negInput.checked = !!node.negate;
       negInput.addEventListener("change", () => { node.negate = negInput.checked; persistBuilder(); });
@@ -485,6 +504,20 @@
     $("apply-builder").addEventListener("click", applyBuilder);
     $("saved-filters").addEventListener("change", event => {
       if (event.target.value) applyExpression(event.target.value);
+    });
+    $("delete-saved-filter").addEventListener("click", () => {
+      const select = $("saved-filters");
+      const selected = select.selectedIndex;
+      if (selected <= 0) {
+        status("削除する保存済みフィルターを選択してください", "error");
+        return;
+      }
+      const item = state.saved[selected - 1];
+      if (!item) return;
+      state.saved.splice(selected - 1, 1);
+      localStorage.setItem(storage.saved, JSON.stringify(state.saved));
+      renderSaved();
+      status(item.name + " を削除しました");
     });
     $("save-filter").addEventListener("click", () => {
       const expression = $("display-filter").value.trim();

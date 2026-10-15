@@ -13,6 +13,7 @@ const assert = require("node:assert/strict");
     await page.locator("#file-input").setInputFiles(path.resolve("artifacts/test.pcap"));
     await page.locator("#packet-rows tr").first().waitFor();
     assert.equal(await page.locator("#packet-rows tr").count(), 2);
+    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
     await page.screenshot({ path: "artifacts/packets-desktop.png", fullPage: true });
 
     await page.locator("#toggle-builder").click();
@@ -24,6 +25,7 @@ const assert = require("node:assert/strict");
     });
     assert.equal(await page.locator("#packet-rows tr").count(), 1);
     assert.match(await page.locator("#display-filter").inputValue(), /ip.addr/);
+    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
     await page.screenshot({ path: "artifacts/filter-builder-desktop.png", fullPage: true });
 
     await page.locator("#close-builder").click();
@@ -34,6 +36,7 @@ const assert = require("node:assert/strict");
       return rows.length === 1 && rows[0].querySelector("td")?.textContent === "2";
     });
     assert.equal(await page.locator("#packet-rows tr").count(), 1);
+    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: "artifacts/packets-mobile.png", fullPage: true });
