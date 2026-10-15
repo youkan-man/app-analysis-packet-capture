@@ -51,6 +51,18 @@
     row.addEventListener("click", event => {
       if (!event.target.closest("button") && window.getSelection()?.isCollapsed !== false) selectPacket(packet.number);
     });
+    // Keep normal drag-to-select text, but reserve a second mouse press for pinning.
+    // Buttons keep their existing actions and must not also pin the parent record.
+    const isControl = event => event.target.closest("button, a, input, select, textarea, [role=button]");
+    row.addEventListener("mousedown", event => {
+      if (event.button === 0 && event.detail > 1 && !isControl(event)) event.preventDefault();
+    });
+    row.addEventListener("dblclick", event => {
+      if (event.button !== 0 || isControl(event)) return;
+      event.preventDefault();
+      // Double-click is idempotent pinning; removal stays on the explicit controls.
+      if (!A.pins.isPinned(packet.number)) A.pins.togglePin(packet);
+    });
     row.addEventListener("contextmenu", event => {
       const cell = event.target.closest("td[data-field]");
       event.preventDefault();
@@ -73,9 +85,6 @@
     cell.dataset.field = field; cell.dataset.scope = "column";
     const value = String(packet[field] ?? ""), span = el("span", "value-text", value);
     cell.append(span); cell.title = value;
-    if (A.columns[field].type === "string") {
-      cell.addEventListener("mouseup", event => A.filters.selectionFromElement(event, span, { scope: "column", field, kind: "string" }));
-    }
     return cell;
   }
   async function selectPacket(number, options = {}) {
