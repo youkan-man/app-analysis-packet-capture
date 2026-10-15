@@ -1,14 +1,11 @@
 name: Build and verify
-
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   tests:
     runs-on: ubuntu-24.04
@@ -16,6 +13,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Retain tested source
+        run: |
+          mkdir -p artifacts
+          git archive --format=zip HEAD > artifacts/tested-source.zip
+          git rev-parse HEAD > artifacts/tested-commit.txt
       - name: Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -33,37 +35,37 @@ jobs:
         run: |
           python -m compileall -q app tests
           for file in static/app/*.js; do node --check "$file"; done
-          pytest -q
+          pytest -q --junitxml=artifacts/pytest.xml
       - name: Build Docker image
         run: docker build -t packet-capture-workbench:ci .
-      - name: Container smoke test
+      - name: Container integration test
         run: |
-          docker run --rm -d --name packet-workbench-ci --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -v packet-workbench-ci-data:/data -p 127.0.0.1:18081:8080 packet-capture-workbench:ci
+          docker run --rm -d --name packet-workbench-ci --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -v packet-workbench-ci-data:/data -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
           for i in $(seq 1 45); do
-            if curl --fail --silent http://127.0.0.1:18081/healthz; then break; fi
+            if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
             sleep 2
           done
-          curl --fail http://127.0.0.1:18081/healthz
-          docker logs packet-workbench-ci
-          docker stop packet-workbench-ci
+          curl --fail http://127.0.0.1:18080/healthz
       - name: Install browser tools
         run: |
           npm install --no-save playwright@1.56.1
           npx playwright install --with-deps chromium
       - name: Chromium integration and screenshots
         run: |
-          mkdir -p artifacts
           python -m tests.sample_capture artifacts/test.pcap
-          uvicorn app.main:app --host 127.0.0.1 --port 18080 > artifacts/server.log 2>&1 &
-          for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
-            sleep 1
-          done
+          python -m tests.inspection_capture artifacts/inspection.pcap
+          node tests/layout_probe.js
           node tests/browser_smoke.js
+          node tests/browser_inspection.js
+      - name: Container logs and cleanup
+        if: always()
+        run: |
+          docker logs packet-workbench-ci > artifacts/server.log 2>&1 || true
+          docker stop packet-workbench-ci || true
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: packet-workbench-ui-evidence
           path: artifacts/
-          if-no-files-found: ignore
+          if-no-files-found: error

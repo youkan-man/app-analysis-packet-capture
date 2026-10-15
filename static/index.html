@@ -7,13 +7,18 @@
   <title>Packet Capture Workbench</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/review-adjustments.css">
+  <link rel="stylesheet" href="/static/inspection.css">
   <script src="/static/app/core.js" defer></script>
+  <script src="/static/app/clipboard.js" defer></script>
   <script src="/static/app/sources.js" defer></script>
   <script src="/static/app/list.js" defer></script>
   <script src="/static/app/detail.js" defer></script>
   <script src="/static/app/filter-model.js" defer></script>
   <script src="/static/app/context.js" defer></script>
   <script src="/static/app/pins.js" defer></script>
+  <script src="/static/app/relations.js" defer></script>
+  <script src="/static/app/layout.js" defer></script>
+  <script src="/static/app/inspection-init.js" defer></script>
   <script src="/static/app/main.js" defer></script>
 </head>
 <body>
@@ -28,7 +33,6 @@
       <button type="button" class="icon-button" id="refresh" title="再読み込み" aria-label="再読み込み">↻</button>
     </div>
   </header>
-
   <div class="workspace" id="workspace">
     <aside class="source-panel" aria-label="キャプチャファイル">
       <div class="panel-head"><span>ファイル</span><span id="capture-count" class="count">0</span></div>
@@ -36,32 +40,24 @@
       <button type="button" class="drop-target" id="drop-target">＋ ファイル追加</button>
       <div class="source-meta" id="source-info">ファイルを選択してください</div>
     </aside>
-
     <main class="viewer">
       <section class="packet-section" aria-label="パケット一覧">
-        <div class="packet-head">
-          <div><strong>パケット</strong> <span id="packet-count" class="count">0</span></div>
-          <div class="packet-status" id="packet-status">0件</div>
-        </div>
+        <div class="packet-head"><div><strong>パケット</strong> <span id="packet-count" class="count">0</span></div><div class="packet-status" id="packet-status">0件</div></div>
         <div id="active-filters" class="active-filters" hidden></div>
         <div id="pin-bar" class="pin-bar" hidden>
-          <span class="pin-title">ピン</span>
-          <div id="pin-chips" class="pin-chips"></div>
+          <span class="pin-title">ピン</span><div id="pin-chips" class="pin-chips"></div>
           <button type="button" class="button" id="compare-pins">比較</button>
           <button type="button" class="button button-quiet" id="clear-pins">解除</button>
         </div>
         <div class="packet-scroll" id="packet-scroll" tabindex="0">
           <table class="packet-table" aria-label="キャプチャされたパケット">
-            <colgroup>
-              <col class="c-pin"><col class="c-no"><col class="c-time"><col class="c-address"><col class="c-address"><col class="c-proto"><col class="c-size"><col>
-            </colgroup>
+            <colgroup><col class="c-pin"><col class="c-no"><col class="c-time"><col class="c-address"><col class="c-address"><col class="c-proto"><col class="c-size"><col></colgroup>
             <thead><tr><th aria-label="ピン"></th><th>No.</th><th>Time</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Length</th><th>Info</th></tr></thead>
             <tbody id="packet-rows"></tbody>
           </table>
           <div id="packet-empty" class="empty-view">PCAP / PCAPNG を開くとパケットが表示されます。</div>
         </div>
       </section>
-
       <section class="inspect-grid" aria-label="選択パケットの内容">
         <div class="details-panel">
           <div class="panel-head"><span>プロトコル詳細</span><span id="selected-number" class="count">—</span></div>
@@ -75,18 +71,14 @@
           </div>
         </div>
       </section>
-
       <section id="compare-panel" class="compare-panel" aria-label="ピン留めしたパケットの比較" hidden>
         <div class="compare-head">
-          <strong>パケット比較</strong>
-          <label><input type="checkbox" id="diff-only" checked> 差分のみ</label>
-          <span id="compare-progress"></span>
-          <button type="button" class="icon-button" id="close-compare" aria-label="比較を閉じる">×</button>
+          <strong>パケット比較</strong><label><input type="checkbox" id="diff-only" checked> 差分のみ</label>
+          <span id="compare-progress"></span><button type="button" class="icon-button" id="close-compare" aria-label="比較を閉じる">×</button>
         </div>
         <div class="compare-scroll"><table id="compare-table" class="compare-table"></table></div>
       </section>
     </main>
-
     <aside id="filter-drawer" class="filter-drawer" aria-label="フィルター条件" hidden>
       <div class="drawer-head"><strong>フィルター</strong><button type="button" class="icon-button" id="close-filter" aria-label="フィルターを閉じる">×</button></div>
       <div class="drawer-actions">
@@ -100,36 +92,15 @@
         <button type="button" class="button button-quiet" id="delete-filter">削除</button>
       </div>
       <div id="filter-groups" class="filter-groups"></div>
-      <details class="advanced-filter">
-        <summary>Wireshark式（上級者向け）</summary>
-        <textarea id="raw-filter" rows="3" spellcheck="false" placeholder="例: tcp.analysis.retransmission"></textarea>
-      </details>
-      <div class="context-setting">
-        <label for="context-radius">一致レコードの前後</label>
-        <select id="context-radius"><option value="0">表示しない</option><option value="1">1件を透過</option><option value="3">3件を透過</option><option value="5">5件を透過</option><option value="10">10件を透過</option></select>
-      </div>
+      <details class="advanced-filter"><summary>Wireshark式（上級者向け）</summary><textarea id="raw-filter" rows="3" spellcheck="false" placeholder="例: tcp.analysis.retransmission"></textarea></details>
+      <div class="context-setting"><label for="context-radius">一致レコードの前後</label><select id="context-radius"><option value="0">表示しない</option><option value="1">1件を透過</option><option value="3">3件を透過</option><option value="5">5件を透過</option><option value="10">10件を透過</option></select></div>
       <div id="filter-error" class="filter-error" role="alert"></div>
       <button type="button" class="button button-primary drawer-apply" id="apply-filters">適用</button>
     </aside>
   </div>
-
-  <footer class="statusbar">
-    <span class="status-dot" id="status-dot"></span>
-    <span id="status-message" role="status" aria-live="polite">準備完了</span>
-    <span class="status-spacer"></span>
-    <span id="status-total">表示 0 / 0</span>
-    <span class="status-separator"></span>
-    <span>TShark</span>
-  </footer>
-
+  <footer class="statusbar"><span class="status-dot" id="status-dot"></span><span id="status-message" role="status" aria-live="polite">準備完了</span><span class="status-spacer"></span><span id="status-total">表示 0 / 0</span><span class="status-separator"></span><span>TShark</span></footer>
   <div id="context-menu" class="context-menu" role="menu" aria-label="パケット操作" hidden></div>
-  <div id="selection-tools" class="selection-tools" role="toolbar" aria-label="選択文字列でフィルター" hidden>
-    <span id="selection-text" class="selection-text"></span>
-    <button type="button" data-selection="replace">含む</button>
-    <button type="button" data-selection="exclude">除外</button>
-    <button type="button" data-selection="and">AND</button>
-    <button type="button" data-selection="or">OR</button>
-  </div>
+  <div id="selection-tools" class="selection-tools" role="toolbar" aria-label="選択文字列でフィルター" hidden><span id="selection-text" class="selection-text"></span><button type="button" data-selection="replace">含む</button><button type="button" data-selection="exclude">除外</button><button type="button" data-selection="and">AND</button><button type="button" data-selection="or">OR</button></div>
   <div class="drag-overlay" id="drag-overlay" hidden>ここに PCAP / PCAPNG をドロップ</div>
 </body>
 </html>

@@ -10,10 +10,7 @@
     const meta = columns[field] || { label: field, type: "string" };
     const selected = selectedTextInside(cell.querySelector(".value-text") || cell);
     const items = [{ heading: `${meta.label} · ${selected || value}` }];
-    const exact = {
-      scope: "column", field, operator: "equals", value,
-      kind: meta.type, case_sensitive: false,
-    };
+    const exact = {scope: "column", field, operator: "equals", value, kind: meta.type, case_sensitive: false};
     items.push(
       { label: "この値だけ表示", run: () => A.filters.addRule(exact, "replace") },
       { label: "この値を除外", run: () => A.filters.addRule({ ...exact, operator: "not_equals" }, "and") },
@@ -28,20 +25,16 @@
         { label: selected ? "選択部分を含まない" : "この文字列を含まない",
           run: () => A.filters.addRule({ ...exact, operator: "not_contains", value: part }, "and") });
     }
+    items.push({divider: true}, {label: "送受信の階層を解析", run: () => A.relations.open(packet.number)});
     items.push({ divider: true }, {
       label: A.pins.isPinned(packet.number) ? "ピンを解除" : "このレコードをピン留め",
       run: () => A.pins.togglePin(packet),
     });
-    if (state.pins.length >= 2) {
-      items.push({ label: "ピン留めしたレコードを比較", run: A.pins.openCompare });
-    }
+    if (state.pins.length >= 2) items.push({ label: "ピン留めしたレコードを比較", run: A.pins.openCompare });
     if (hasFilters()) {
       items.push({ divider: true }, { heading: "一致レコードの前後を透過表示" });
       for (const radius of [0, 1, 3, 5, 10]) {
-        items.push({
-          label: radius ? `前後${radius}件` : "前後表示を解除",
-          run: () => A.filters.setContext(radius),
-        });
+        items.push({label: radius ? `前後${radius}件` : "前後表示を解除", run: () => A.filters.setContext(radius)});
       }
     }
     items.push({ divider: true },
@@ -49,13 +42,10 @@
       { label: "フィルター設定を開く", run: () => A.filters.toggleFilter(true) });
     showMenu(items, x, y);
   }
-  function showDetailMenu(field, value, element, x, y) {
-    const kind = inferKind(field, value);
+  function showDetailMenu(field, value, element, x, y, metadata = null) {
+    const kind = metadata?.kind || inferKind(field, value);
     const selected = selectedTextInside(element.querySelector(".detail-value") || element);
-    const exact = {
-      scope: "wireshark", field, operator: "equals", value,
-      kind, case_sensitive: false,
-    };
+    const exact = {scope: "wireshark", field, operator: "equals", value, kind, case_sensitive: false};
     const items = [{ heading: `${field} · ${selected || value}` },
       { label: "この値だけ表示", run: () => A.filters.addRule(exact, "replace") },
       { label: "この値を除外", run: () => A.filters.addRule({ ...exact, operator: "not_equals" }, "and") },
@@ -64,19 +54,18 @@
     if (kind === "string") {
       const part = selected || value;
       items.push({ divider: true },
-        { label: "選択文字列を含む",
-          run: () => A.filters.addRule({ ...exact, operator: "contains", value: part }, "replace") },
-        { label: "選択文字列を含まない",
-          run: () => A.filters.addRule({ ...exact, operator: "not_contains", value: part }, "and") });
+        { label: "選択文字列を含む", run: () => A.filters.addRule({ ...exact, operator: "contains", value: part }, "replace") },
+        { label: "選択文字列を含まない", run: () => A.filters.addRule({ ...exact, operator: "not_contains", value: part }, "and") });
     }
     items.push({ divider: true },
-      { label: "値をコピー", run: () => copyText(selected || value) });
+      { label: "値をコピー", run: () => A.clipboard.copy(value) },
+      { label: "表示値をコピー", run: () => A.clipboard.copy(metadata?.display_value || element.textContent) });
+    if (metadata?.raw_value) items.push({label: "生値（16進）をコピー", run: () => A.clipboard.copy(metadata.raw_value)});
     showMenu(items, x, y);
   }
   function inferKind(field, value) {
     const text = String(value ?? "");
-    if (/^(?:ip|ipv6|eth)\.(?:src|dst|addr)/.test(field)
-        && /^[0-9a-fA-F:.]+$/.test(text)) return "address";
+    if (/^(?:ip|ipv6|eth)\.(?:src|dst|addr)/.test(field) && /^[0-9a-fA-F:.]+$/.test(text)) return "address";
     if (/^-?(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?)$/.test(text)) return "number";
     return "string";
   }
@@ -123,9 +112,7 @@
   function selectedTextInside(element) {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.rangeCount
-        || !element.contains(selection.anchorNode) || !element.contains(selection.focusNode)) {
-      return "";
-    }
+        || !element.contains(selection.anchorNode) || !element.contains(selection.focusNode)) return "";
     return selection.toString().trim();
   }
   function selectionFromElement(event, element, descriptor) {
@@ -135,8 +122,7 @@
     state.selection = { ...descriptor, value };
     $("selection-text").textContent = value.length > 34 ? value.slice(0, 34) + "…" : value;
     const rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
-    placePopup($("selection-tools"), rect.left,
-      rect.top > 55 ? rect.top - 42 : rect.bottom + 6);
+    placePopup($("selection-tools"), rect.left, rect.top > 55 ? rect.top - 42 : rect.bottom + 6);
   }
   function hideSelectionTools() {
     $("selection-tools").hidden = true;
@@ -144,21 +130,11 @@
   }
   function useSelection(action) {
     if (!state.selection) return;
-    const base = {
-      ...state.selection,
-      operator: action === "exclude" ? "not_contains" : "contains",
-      case_sensitive: false,
-    };
-    A.filters.addRule(base,
-      action === "replace" ? "replace" : action === "or" ? "or" : "and");
+    const base = {...state.selection, operator: action === "exclude" ? "not_contains" : "contains", case_sensitive: false};
+    A.filters.addRule(base, action === "replace" ? "replace" : action === "or" ? "or" : "and");
     hideSelectionTools();
   }
-  async function copyText(value) {
-    try {
-      await navigator.clipboard.writeText(String(value));
-      status("コピーしました");
-    } catch { status("クリップボードに書き込めません", "error"); }
-  }
+  async function copyText(value) { return A.clipboard.copy(value); }
 
   Object.assign(A.filters, {
     showPacketMenu, showDetailMenu, inferKind, showMenu, hideMenu,

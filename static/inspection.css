@@ -1,0 +1,113 @@
+/* Compact typography and adjustable panes; geometry is owned by layout.js. */
+:root {--ui-font-size:12px;--row-height:24px;--byte-row-height:21px;--source-width:170px;--right-width:380px;--relations-width:430px;--packet-share:60%;--detail-share:50%;--compare-share:58%;font-size:var(--ui-font-size)}
+body {font-size:var(--ui-font-size)}
+.button {padding:5px 8px;font-size:var(--ui-font-size)}
+.app-header {height:44px;flex-basis:44px;padding:0 10px}
+.brand-mark {width:28px;height:28px;font-size:19px}
+.panel-head,.packet-head {min-height:29px;padding:4px 8px;font-size:var(--ui-font-size)}
+.count,.tool-count,.packet-status,.source-meta,.capture-open span,.statusbar,.group-join,.clause-join {font-size:calc(var(--ui-font-size) - 1px)}
+.icon-button {min-width:26px;font-size:16px;padding:2px 7px}
+.font-control {white-space:nowrap;display:flex;align-items:center;gap:3px}
+.font-control select {width:45px;padding:3px;border:1px solid #39536c;border-radius:3px;background:#152438}
+.workspace,.workspace.filter-open {grid-template-columns:var(--source-width) 5px minmax(0,1fr) 0 0;grid-template-rows:minmax(0,1fr)}
+.workspace.filter-open {grid-template-columns:var(--source-width) 5px minmax(0,1fr) 5px var(--right-width)}
+.workspace.relations-open {grid-template-columns:var(--source-width) 5px minmax(0,1fr) 5px var(--relations-width)}
+.source-panel {grid-column:1;grid-row:1;border-right:0}
+#split-sources {grid-column:2;grid-row:1}
+.viewer {grid-column:3;grid-row:1;grid-template-rows:minmax(120px,var(--packet-share)) 5px minmax(100px,1fr)}
+#split-right {display:none;grid-column:4;grid-row:1}
+.filter-open #split-right,.relations-open #split-right {display:block}
+.filter-drawer,.relations-panel {grid-column:5;grid-row:1;position:static;min-width:0;border-left:0}
+.packet-section {grid-row:1}
+#split-packets {grid-row:2;z-index:6}
+.inspect-grid {grid-row:3;grid-template-columns:minmax(100px,var(--detail-share)) 5px minmax(100px,1fr);border-top:0}
+.details-panel {grid-column:1;grid-row:1;border:0}
+#split-inspect {grid-column:2;grid-row:1}
+.bytes-panel {grid-column:3;grid-row:1}
+.splitter {position:relative;background:#27384b;touch-action:none;user-select:none;z-index:4;min-width:0;min-height:0;outline-offset:-1px}
+.splitter[data-axis=x] {cursor:col-resize}
+.splitter[data-axis=y] {cursor:row-resize}
+.splitter:hover,.splitter:focus-visible {background:#4892c0}
+/* Expand across the thin edge only; never invade the adjacent perpendicular boundary. */
+.splitter::after {content:'';position:absolute;inset:0}
+.splitter[data-axis=x]::after {inset:0 -2px}
+.splitter[data-axis=y]::after {inset:-2px 0}
+.pane-resizing,.pane-resizing * {user-select:none!important;cursor:grabbing!important}
+.packet-table {min-width:0;font-size:calc(var(--ui-font-size) - 1px)}
+.packet-table th {height:26px;padding:4px 7px}
+.packet-table th .splitter {position:absolute;right:0;top:0;bottom:0;width:5px;background:transparent;z-index:5}
+.packet-table th .splitter:hover,.packet-table th .splitter:focus-visible {background:#4892c0}
+.packet-table td {height:var(--row-height);padding:3px 7px;line-height:calc(var(--ui-font-size) + 1px)}
+.pin-button {height:calc(var(--row-height) - 4px);width:21px;font-size:13px}
+.pin-bar,.active-filters {min-height:27px;padding:3px 6px}
+.detail-content {font-size:calc(var(--ui-font-size) - 1px);line-height:1.4;padding:3px 5px}
+.detail-content summary,.detail-leaf {min-height:21px;padding:3px 5px}
+.detail-content .field-row {white-space:normal;overflow-wrap:anywhere;cursor:pointer}
+.detail-content div.field-row {padding-left:17px}
+.field-row.selected-field {background:#245675;color:#fff;box-shadow:inset 2px 0 #61c3fa}
+.detail-content details {margin-left:7px}
+.byte-tools {display:flex;gap:5px;align-items:center;padding:3px 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+#byte-selection {flex:1;white-space:nowrap;color:#bdd8e9;font-size:calc(var(--ui-font-size) - 1px)}
+.byte-tools .button {font-size:calc(var(--ui-font-size) - 1px);padding:3px 5px}
+.byte-viewport {position:relative;outline-offset:-2px;user-select:none;touch-action:pan-y}
+.bytes-columns,.hex-row {grid-template-columns:7ch 49ch 17ch;gap:1ch;min-width:77ch}
+.bytes-columns {font-size:calc(var(--ui-font-size) - 1px);font-family:ui-monospace,Consolas,monospace;padding:4px 7px}
+.hex-content {min-width:77ch;padding:4px 7px;font-size:calc(var(--ui-font-size) - 1px)}
+.hex-row {height:var(--byte-row-height);line-height:var(--byte-row-height)}
+.hex-byte {display:inline-block;width:3ch;border-radius:2px;text-align:left;cursor:cell}
+.ascii-byte {display:inline-block;width:1ch;border-radius:2px;cursor:cell}
+.byte-selected {background:#356f99;color:#fff}
+.hex-byte:hover,.ascii-byte:hover {box-shadow:inset 0 -2px #a0ddff}
+.byte-spacer {min-width:1px}
+.compare-panel {height:var(--compare-share)}
+#split-compare {position:absolute;left:0;right:0;top:0;height:5px}
+.compare-head {padding-top:9px}
+.compare-table {font-size:calc(var(--ui-font-size) - 1px)}
+.filter-rule {grid-template-columns:minmax(0,1fr) minmax(0,.9fr) minmax(0,1.2fr) 24px}
+.filter-rule input,.filter-rule select {padding:5px 4px;font-size:var(--ui-font-size)}
+.menu-heading,.filter-group-head {font-size:calc(var(--ui-font-size) - 1px)}
+.menu-action {font-size:var(--ui-font-size);padding:6px 9px}
+.relations-panel {display:flex;flex-direction:column;min-height:0;background:#112031;box-shadow:-8px 0 24px #0004}
+.relations-content {flex:1;min-height:0;overflow:auto;padding:8px}
+.relation-anchor {font-weight:650;padding-bottom:6px}
+.relation-endpoints {overflow-wrap:anywhere;font-family:ui-monospace,Consolas,monospace;padding-bottom:6px}
+.relation-counts {color:#a5c7dd;padding-bottom:6px}
+.protocol-stack {display:flex;gap:4px;flex-wrap:wrap;padding:0 0 9px}
+.protocol-stack span {border:1px solid #38566e;border-radius:3px;padding:2px 6px}
+.relation-record {padding:5px 6px;border-bottom:1px solid #294059;font-size:var(--ui-font-size)}
+.relation-record.anchor-record {border-left:3px solid #f4c46e}
+.relation-record.selected-record {background:#1c405b}
+.relation-jump {text-align:left;font-family:ui-monospace,Consolas,monospace;border:0;background:transparent;color:#afdaff;padding:2px 0;display:block}
+.relation-jump:hover,.text-button:hover {text-decoration:underline;color:white}
+.relation-kind {color:#edc184;font-size:calc(var(--ui-font-size) - 1px)}
+.relation-info {overflow-wrap:anywhere;color:#d4e3f1;padding-top:3px}
+.relation-group {border:1px solid #355069;border-radius:4px;margin:6px 0}
+.relation-group summary {padding:5px;cursor:pointer;background:#192d40;color:#b6d8ec}
+.relation-children {margin-left:16px;border-left:1px solid #4b7592}
+.relation-links {display:flex;flex-wrap:wrap;gap:5px;padding-top:3px}
+.text-button {border:0;background:transparent;color:#9fcbe5;padding:1px;font-size:calc(var(--ui-font-size) - 1px)}
+.relation-warning {font-size:var(--ui-font-size);line-height:1.5;margin-top:8px;padding:7px;border:1px solid #695333;color:#eed4a5}
+@media(max-width:1100px){
+ .workspace,.workspace.filter-open,.workspace.relations-open {grid-template-columns:var(--source-width) 5px minmax(0,1fr) 0 0}
+ .filter-drawer,.relations-panel {position:absolute;right:0;top:0;bottom:0;width:min(var(--right-width),96vw);z-index:45;border-left:1px solid #5e819d}
+ .relations-panel {width:min(var(--relations-width),96vw)}
+ .filter-open #split-right,.relations-open #split-right {display:none}
+}
+@media(max-width:720px){
+ .app-header {height:auto;min-height:42px;flex-basis:auto;padding:5px}
+ .app-brand {display:none}
+ .header-tools {gap:4px;flex-wrap:wrap;justify-content:flex-end}
+ .header-tools .button {padding:4px 5px}
+ .workspace,.workspace.filter-open,.workspace.relations-open {grid-template-columns:minmax(0,1fr);grid-template-rows:58px minmax(0,1fr)}
+ .source-panel {grid-column:1;grid-row:1}
+ #split-sources {display:none}
+ .viewer {grid-column:1;grid-row:2;grid-template-rows:minmax(110px,var(--packet-share)) 5px minmax(130px,1fr)}
+ .inspect-grid {grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(45px,var(--detail-share)) 5px minmax(50px,1fr)}
+ .details-panel {grid-column:1;grid-row:1}
+ #split-inspect {grid-column:1;grid-row:2}
+ .bytes-panel {grid-column:1;grid-row:3}
+ .filter-drawer,.relations-panel {grid-column:auto;grid-row:auto;max-width:96vw}
+ .byte-tools {padding:2px 5px;gap:3px}
+ .byte-tools .button {padding:2px 4px}
+ .statusbar > span:last-child {display:none}
+}
