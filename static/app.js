@@ -222,7 +222,7 @@
       if (++rendered > 700 || depth > 13 || key.endsWith("_raw")) return;
       if (value !== null && typeof value === "object") {
         const block = dom("details");
-        if (depth < 2) block.open = true;
+        if (depth === 0 && key !== "frame") block.open = true;
         const names = { frame: "Frame", eth: "Ethernet II", ip: "Internet Protocol Version 4",
           ipv6: "Internet Protocol Version 6", tcp: "Transmission Control Protocol",
           udp: "User Datagram Protocol", dns: "Domain Name System", tls: "Transport Layer Security" };

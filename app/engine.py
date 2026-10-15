@@ -41,9 +41,12 @@ def run_tshark(args: list[str], timeout: int = 90, limit: int = MAX_LIST_BYTES) 
     if len(stdout) > limit:
         raise DissectionError("解析結果が上限を超えました。フィルターを絞ってください")
     if process.returncode:
-        message = stderr.decode("utf-8", "replace").strip().split("\n")
-        # Strip potentially sensitive temporary file paths from diagnostics.
-        clean = re.sub(r"/(?:data|tmp)/[^\s:]+", "<capture>", message[-1] if message else "")
+        lines = [line.strip() for line in stderr.decode("utf-8", "replace").splitlines() if line.strip()]
+        headline = next((line for line in lines if line.lower().startswith("tshark:")), "")
+        if not headline and lines:
+            headline = next((line for line in lines if "invalid" in line.lower() or "error" in line.lower()), lines[0])
+        # Strip private capture paths from diagnostics, preserving the useful error line.
+        clean = re.sub(r"/(?:data|tmp)/[^\s:]+", "<capture>", headline)
         raise DissectionError((clean or "TShark で解析できませんでした")[:450])
     return stdout.decode("utf-8", "replace")
 
