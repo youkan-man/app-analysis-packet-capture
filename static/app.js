@@ -592,6 +592,16 @@
   }
 
   wireEvents();
+  infoUi = new window.PacketInfoControls({
+    onInfoChange: () => {
+      try { localStorage.setItem(storage.info, JSON.stringify(infoUi.getGroups())); } catch {}
+      state.page = 1;
+      loadPackets();
+    },
+    onDisplayChange: appendDisplayExpression,
+    onStatus: status,
+  });
+  infoUi.setGroups(parseStored(storage.info, []), false);
   renderSaved();
   renderBuilder();
   $("filter-builder").hidden = true;
