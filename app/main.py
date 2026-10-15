@@ -1,4 +1,4 @@
-"""HTTP API, capture ownership, upload validation and static frontend."""
+"""HTTP API, capture ownership, filter validation and static frontend."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -12,11 +12,9 @@ import uuid
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from .engine import DissectionError, packet_detail, packet_list, search_fields
-from .filters import FilterError, compile_filter
-from .info_filters import parse_info_filters
+from .filters import FilterError, parse_filter_groups
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = Path(os.getenv("CAPTURE_DIR", "/tmp/packet-workbench"))
@@ -28,12 +26,8 @@ MAGICS = {
 }
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 guard = threading.RLock()
-app = FastAPI(title="Packet Capture Workbench", version="0.1.0")
+app = FastAPI(title="Packet Capture Workbench", version="0.2.0")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
-
-
-class CompileRequest(BaseModel):
-    node: dict
 
 
 class CaptureStore:
@@ -61,8 +55,7 @@ class CaptureStore:
         captures = []
         for entry in self.root.glob("*.json"):
             try:
-                capture_id = entry.stem
-                _, data = self.get(capture_id)
+                _, data = self.get(entry.stem)
                 captures.append(data)
             except (HTTPException, OSError):
                 continue
@@ -89,8 +82,10 @@ class CaptureStore:
             fmt = MAGICS.get(first)
             if not fmt:
                 raise HTTPException(status_code=422, detail="PCAP / PCAPNG ファイルではありません")
-            data = {"id": capture_id, "filename": filename, "format": fmt,
-                    "size": size, "added": datetime.now(timezone.utc).isoformat()}
+            data = {
+                "id": capture_id, "filename": filename, "format": fmt, "size": size,
+                "added": datetime.now(timezone.utc).isoformat(),
+            }
             meta_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             return data
         except BaseException:
@@ -144,18 +139,18 @@ async def delete_capture(capture_id: str):
 
 @app.get("/api/captures/{capture_id}/packets")
 async def list_packets(
-    capture_id: str, page: int = Query(1, ge=1),
-    limit: int = Query(200, ge=1, le=500),
-    filter: str = Query("", max_length=2048),
-    info: str = Query("", max_length=4096),
+    capture_id: str,
+    raw: str = Query("", max_length=2048),
+    view: str = Query("", max_length=16384),
+    context: int = Query(0, ge=0, le=50),
 ):
     try:
-        info_groups = parse_info_filters(info)
+        groups = parse_filter_groups(view)
     except FilterError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     with guard:
         file_path, _ = store.get(capture_id)
-        return packet_list(file_path, filter, page, limit, info_groups)
+        return packet_list(file_path, raw, groups, context)
 
 
 @app.get("/api/captures/{capture_id}/packets/{number}")
@@ -165,14 +160,6 @@ async def get_packet(capture_id: str, number: int):
     with guard:
         file_path, _ = store.get(capture_id)
         return packet_detail(file_path, number)
-
-
-@app.post("/api/filters/compile")
-async def compile_visual_filter(payload: CompileRequest):
-    try:
-        return {"expression": compile_filter(payload.node)}
-    except FilterError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/fields")

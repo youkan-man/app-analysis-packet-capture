@@ -1,26 +1,30 @@
-"""Bounded, non-shell TShark adapter. This is the only module invoking Wireshark."""
+"""Bounded offline TShark adapter and packet-view filter execution."""
 from __future__ import annotations
 
 import csv
+from functools import lru_cache
 import io
 import json
 import os
-from functools import lru_cache
 from pathlib import Path
 import re
 import subprocess
 
-from .info_filters import InfoGroups, match_info
+from .filters import FilterGroups, compile_native_rules, match_column_rules, split_group
 
 TSHARK = os.getenv("TSHARK_BIN", "tshark")
-FIELDS = (
+DISPLAY_FIELDS = (
     "frame.number", "frame.time_relative", "_ws.col.Source",
     "_ws.col.Destination", "_ws.col.Protocol", "frame.len", "_ws.col.Info",
+)
+CONTEXT_FIELDS = (
     "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "eth.src", "eth.dst",
     "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport",
 )
+FIELDS = DISPLAY_FIELDS + CONTEXT_FIELDS
 MAX_LIST_BYTES = 32 * 1024 * 1024
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
+MAX_CONTEXT = 50
 
 
 class DissectionError(ValueError):
@@ -28,7 +32,7 @@ class DissectionError(ValueError):
 
 
 def run_tshark(args: list[str], timeout: int = 90, limit: int = MAX_LIST_BYTES) -> str:
-    """No shell and no interface/privilege access; TShark reads uploaded files only."""
+    """Execute TShark without a shell or live-interface privileges."""
     try:
         process = subprocess.Popen(
             [TSHARK, "-n", *args], stdin=subprocess.DEVNULL,
@@ -43,58 +47,128 @@ def run_tshark(args: list[str], timeout: int = 90, limit: int = MAX_LIST_BYTES) 
         process.communicate()
         raise DissectionError("解析が制限時間を超えました") from exc
     if len(stdout) > limit:
-        raise DissectionError("解析結果が上限を超えました。フィルターを絞ってください")
+        raise DissectionError("解析結果が上限を超えました。条件を絞ってください")
     if process.returncode:
         lines = [line.strip() for line in stderr.decode("utf-8", "replace").splitlines() if line.strip()]
         headline = next((line for line in lines if line.lower().startswith("tshark:")), "")
         if not headline and lines:
             headline = next((line for line in lines if "invalid" in line.lower() or "error" in line.lower()), lines[0])
-        # Strip private capture paths from diagnostics, preserving the useful error line.
         clean = re.sub(r"/(?:data|tmp)/[^\s:]+", "<capture>", headline)
         raise DissectionError((clean or "TShark で解析できませんでした")[:450])
     return stdout.decode("utf-8", "replace")
 
 
-def packet_list(path: Path, expression: str = "", page: int = 1, limit: int = 200, info_groups: InfoGroups = ()) -> dict:
-    args = ["-r", str(path), "-T", "fields", "-E", "separator=/t",
-            "-E", "quote=d", "-E", "occurrence=f"]
+def _field_args() -> list[str]:
+    args = ["-T", "fields", "-E", "separator=/t", "-E", "quote=d", "-E", "occurrence=f"]
     for field in FIELDS:
         args.extend(["-e", field])
-    if expression:
-        args.extend(["-Y", expression])
-    content = run_tshark(args)
-    rows = []
+    return args
+
+
+def decoded_rows(path: Path) -> list[dict]:
+    content = run_tshark(["-r", str(path), *_field_args()])
+    rows: list[dict] = []
     reader = csv.reader(io.StringIO(content), delimiter="\t", quotechar='"')
-    for fields in reader:
-        if len(fields) < len(FIELDS):
+    for values in reader:
+        if len(values) < len(DISPLAY_FIELDS) or not values[0].strip().isdigit():
             continue
-        if not fields[0].strip().isdigit():
-            continue
-        if not match_info(fields[6], info_groups):
-            continue
-        decoded_fields = {
-            name: fields[index] for index, name in enumerate(FIELDS[7:], start=7)
-            if len(fields) > index and fields[index]
+        extra = {
+            field: values[index]
+            for index, field in enumerate(CONTEXT_FIELDS, start=len(DISPLAY_FIELDS))
+            if len(values) > index and values[index]
         }
         rows.append({
-            "number": int(fields[0]), "time": fields[1],
-            "source": fields[2], "destination": fields[3],
-            "protocol": fields[4], "length": fields[5],
-            "info": fields[6], "fields": decoded_fields,
+            "number": int(values[0]),
+            "time": values[1],
+            "source": values[2],
+            "destination": values[3],
+            "protocol": values[4],
+            "length": int(values[5]) if values[5].isdigit() else values[5],
+            "info": values[6],
+            "fields": extra,
         })
-    start = (page - 1) * limit
-    return {"packets": rows[start:start + limit], "total": len(rows),
-            "page": page, "page_size": limit, "filter": expression}
+    return rows
+
+
+def matching_frame_numbers(path: Path, expression: str) -> frozenset[int]:
+    if not expression:
+        return frozenset()
+    content = run_tshark([
+        "-r", str(path), "-Y", expression, "-T", "fields",
+        "-E", "occurrence=f", "-e", "frame.number",
+    ])
+    return frozenset(int(line.strip()) for line in content.splitlines() if line.strip().isdigit())
+
+
+def packet_list(
+    path: Path,
+    raw_expression: str = "",
+    groups: FilterGroups = (),
+    context: int = 0,
+) -> dict:
+    """Return a continuous filtered view plus translucent neighbouring records."""
+    if not (0 <= context <= MAX_CONTEXT):
+        raise DissectionError("前後表示は0〜50件で指定してください")
+    rows = decoded_rows(path)
+    all_numbers = frozenset(row["number"] for row in rows)
+    filtered = bool(raw_expression or groups)
+
+    if not filtered:
+        matching = all_numbers
+    elif not groups:
+        matching = matching_frame_numbers(path, raw_expression)
+    else:
+        matching_set: set[int] = set()
+        native_cache: dict[str, frozenset[int]] = {}
+        for group in groups:
+            column_rules, native_rules = split_group(group)
+            group_native = compile_native_rules(native_rules)
+            expressions = [part for part in (raw_expression.strip(), group_native) if part]
+            expression = " && ".join(f"({part})" for part in expressions)
+            if expression:
+                frames = native_cache.get(expression)
+                if frames is None:
+                    frames = matching_frame_numbers(path, expression)
+                    native_cache[expression] = frames
+            else:
+                frames = all_numbers
+            for row in rows:
+                if row["number"] in frames and match_column_rules(row, column_rules):
+                    matching_set.add(row["number"])
+        matching = frozenset(matching_set)
+
+    matching_indexes = {index for index, row in enumerate(rows) if row["number"] in matching}
+    if filtered and context and matching_indexes:
+        included_indexes: set[int] = set()
+        for index in matching_indexes:
+            included_indexes.update(range(max(0, index - context), min(len(rows), index + context + 1)))
+    else:
+        included_indexes = matching_indexes
+
+    packets: list[dict] = []
+    for index in sorted(included_indexes):
+        row = dict(rows[index])
+        is_match = index in matching_indexes
+        row["is_match"] = is_match
+        row["context_distance"] = 0 if is_match else min(abs(index - match) for match in matching_indexes)
+        packets.append(row)
+
+    return {
+        "packets": packets,
+        "total": len(rows),
+        "matched": len(matching_indexes),
+        "displayed": len(packets),
+        "filtered": filtered,
+        "context": context,
+        "raw_filter": raw_expression,
+    }
 
 
 def _find_raw(data: object) -> str:
     if isinstance(data, dict):
         for key, value in data.items():
             if key == "frame_raw":
-                if isinstance(value, list) and value and isinstance(value[0], str):
-                    candidate = value[0]
-                else:
-                    candidate = value
+                candidate = value[0] if isinstance(value, list) and value else value
                 if isinstance(candidate, str) and re.fullmatch(r"[0-9a-fA-F]+", candidate):
                     return candidate.lower()
         for value in data.values():
@@ -111,8 +185,7 @@ def _find_raw(data: object) -> str:
 
 def packet_detail(path: Path, number: int) -> dict:
     selector = f"frame.number == {number}"
-    args = ["-r", str(path), "-Y", selector, "-T", "json", "-x"]
-    content = run_tshark(args, timeout=45, limit=MAX_DETAIL_BYTES)
+    content = run_tshark(["-r", str(path), "-Y", selector, "-T", "json", "-x"], timeout=45, limit=MAX_DETAIL_BYTES)
     try:
         packets = json.loads(content)
         if not isinstance(packets, list) or not packets:
@@ -122,11 +195,10 @@ def packet_detail(path: Path, number: int) -> dict:
             raise DissectionError("プロトコルツリーを取得できません")
         raw = _find_raw(layers)
         if not raw:
-            raw_content = run_tshark(
+            raw = _find_raw(json.loads(run_tshark(
                 ["-r", str(path), "-Y", selector, "-T", "jsonraw"],
                 timeout=45, limit=MAX_DETAIL_BYTES,
-            )
-            raw = _find_raw(json.loads(raw_content))
+            )))
     except (ValueError, TypeError, KeyError) as exc:
         if isinstance(exc, DissectionError):
             raise
@@ -136,7 +208,6 @@ def packet_detail(path: Path, number: int) -> dict:
 
 @lru_cache(maxsize=1)
 def get_fields() -> tuple[dict, ...]:
-    """Fetch actual field identifiers/types supported by the installed TShark."""
     try:
         data = run_tshark(["-G", "fields"], timeout=45, limit=48 * 1024 * 1024)
     except DissectionError:
@@ -152,13 +223,14 @@ def get_fields() -> tuple[dict, ...]:
 def search_fields(query: str, limit: int = 50) -> list[dict]:
     query = query.lower().strip()
     if not query:
-        popular = ("ip.src", "ip.dst", "ip.addr", "ipv6.addr", "tcp.port",
-                   "udp.port", "tcp.flags.syn", "dns.qry.name", "http.host",
-                   "http.request.method", "tls.handshake.type", "frame.len")
-        selected = set(popular)
-        return [item for item in get_fields() if item["name"] in selected]
-    exact = []
-    partial = []
+        popular = {
+            "ip.src", "ip.dst", "ip.addr", "ipv6.addr", "tcp.port", "udp.port",
+            "tcp.flags.syn", "dns.qry.name", "http.host", "http.request.method",
+            "tls.handshake.type", "frame.len",
+        }
+        return [item for item in get_fields() if item["name"] in popular]
+    exact: list[dict] = []
+    partial: list[dict] = []
     for item in get_fields():
         name = item["name"].lower()
         label = item["label"].lower()

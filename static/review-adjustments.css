@@ -1,0 +1,4 @@
+/* Visual review adjustments: retain context distinction without sacrificing readability. */
+.packet-table tbody tr.context-row { opacity: .5; }
+.packet-table tbody tr.context-row:hover,
+.packet-table tbody tr.context-row.selected { opacity: .88; }
