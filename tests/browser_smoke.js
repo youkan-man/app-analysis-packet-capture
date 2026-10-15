@@ -18,11 +18,16 @@ const assert = require("node:assert/strict");
         Number(row.cells[0]?.textContent) === expected[index]);
     }, numbers, { timeout: 15000 });
   }
+  async function waitReady() {
+    await page.waitForFunction(() =>
+      !document.querySelector("#status-dot")?.classList.contains("busy")
+      && document.querySelector("#packet-bytes .hex-row"), null, { timeout: 15000 });
+  }
   async function clearAll() {
     if (await page.locator("#info-clear").isEnabled()) await page.locator("#info-clear").click();
     await page.locator("#clear-filter").click();
     await rowsEqual([1, 2]);
-    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
+    await waitReady();
   }
 
   try {
@@ -56,7 +61,7 @@ const assert = require("node:assert/strict");
     await page.locator("#selection-tools [data-info-action=replace]").click();
     await rowsEqual([1]);
     assert.match(await page.locator("#info-chips").textContent(), /query/i);
-    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
+    await waitReady();
     await page.screenshot({ path: "artifacts/info-filtered-desktop.png", fullPage: true });
     await clearAll();
 
@@ -138,7 +143,7 @@ const assert = require("node:assert/strict");
     await page.locator("#condition-root .rule-value").fill("192.0.2.10");
     await page.locator("#apply-builder").click();
     await rowsEqual([1]);
-    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
+    await waitReady();
     await page.screenshot({ path: "artifacts/filter-builder-desktop.png", fullPage: true });
 
     // Mobile remains navigable with visible Info controls and context actions.
@@ -148,7 +153,7 @@ const assert = require("node:assert/strict");
     await page.screenshot({ path: "artifacts/packets-mobile.png", fullPage: true });
     await firstRow.locator(".packet-row-actions").click();
     await page.locator("#packet-context-menu").waitFor({ state: "visible" });
-    await page.screenshot({ path: "artifacts/info-context-mobile.png", fullPage: true });
+    await page.screenshot({ path: "artifacts/info-context-mobile.png", fullPage: false });
     assert.deepEqual(errors, []);
     console.log("Browser smoke passed: substring selection, menus, Info AND/OR, raw display, presets, desktop/mobile");
   } finally { await browser.close(); }
