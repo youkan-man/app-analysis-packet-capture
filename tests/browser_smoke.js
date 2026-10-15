@@ -52,6 +52,7 @@ const assert = require("node:assert/strict");
     await page.getByRole("menuitem", { name: "前後1件" }).click();
     await waitNumbers([1,2,4,5,6]);
     assert.equal(await page.locator("#packet-rows tr.context-row").count(), 3);
+    await waitReady();
     await page.screenshot({ path: "artifacts/filter-neighbours-desktop.png", fullPage: true });
     await clearFilters();
 
@@ -77,6 +78,7 @@ const assert = require("node:assert/strict");
     await rule.locator("input").fill("TCP");
     await page.locator("#apply-filters").click();
     await waitNumbers([2,4,6]);
+    await waitReady();
     assert.equal(await page.locator(".advanced-filter[open]").count(), 0);
     await page.screenshot({ path: "artifacts/filter-drawer-desktop.png", fullPage: true });
     await clearFilters();
