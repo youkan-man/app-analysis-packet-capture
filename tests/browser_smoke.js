@@ -31,9 +31,9 @@ const assert = require("node:assert/strict");
 
   async function selectText(locator, text) {
     // Drawer/viewport changes rerender virtual rows through ResizeObserver.
-    // Scroll synchronously, then reacquire the locator after layout has settled.
+    // Center the text away from autoscroll edges, then reacquire it after layout settles.
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await locator.evaluate(node => node.scrollIntoView({block: 'nearest', inline: 'nearest'}));
+    await locator.evaluate(node => node.scrollIntoView({block: 'center', inline: 'nearest'}));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const box = await locator.evaluate((node, text) => {
       const textNode = node.firstChild;
