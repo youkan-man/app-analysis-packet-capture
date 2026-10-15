@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>Packet Capture Workbench</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/info-interactions.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -41,6 +42,32 @@
       <select id="saved-filters" title="保存済みフィルター"><option value="">保存済みフィルター</option></select>
       <button id="save-filter" type="button">保存</button>
       <button id="delete-saved-filter" type="button" title="選択したフィルターを削除">削除</button>
+    </div>
+    <div class="info-search">
+      <form id="info-form" class="info-form">
+        <label for="info-query" class="filter-label">Info検索</label>
+        <input id="info-query" name="info" type="search" maxlength="200" autocomplete="off"
+               placeholder="Info列の文字列を検索" aria-label="Info列の部分文字列">
+        <label for="info-mode" class="visually-hidden">Info検索の比較方式</label>
+        <select id="info-mode" aria-label="Infoの一致条件">
+          <option value="contains">含む</option>
+          <option value="not_contains">含まない</option>
+          <option value="equals">完全一致</option>
+          <option value="not_equals">一致しない</option>
+          <option value="starts_with">先頭一致</option>
+          <option value="ends_with">末尾一致</option>
+        </select>
+        <label for="info-join" class="visually-hidden">既存のInfo条件との組み合わせ</label>
+        <select id="info-join" aria-label="Info条件の追加方法">
+          <option value="replace">置換</option>
+          <option value="and">AND追加</option>
+          <option value="or">OR追加</option>
+        </select>
+        <label class="info-case"><input id="info-case" type="checkbox">Aa区別</label>
+        <button type="submit" class="button button-primary">適用</button>
+        <button type="button" class="button" id="info-clear">Info解除</button>
+      </form>
+      <div id="info-chips" class="info-chips" aria-label="適用中のInfo条件" hidden></div>
     </div>
   </div>
 
@@ -116,6 +143,15 @@
     <span class="status-separator"></span>
     <span>TShark / Wireshark</span>
   </footer>
+  <div id="packet-context-menu" class="packet-context-menu" role="menu" aria-label="パケットのフィルター操作" hidden></div>
+  <div id="selection-tools" class="selection-tools" role="toolbar" aria-label="選択したInfo文字列を絞り込み" hidden>
+    <span id="selection-text" class="selection-text"></span>
+    <button type="button" data-info-action="replace" data-operator="contains">含む</button>
+    <button type="button" data-info-action="and" data-operator="not_contains">除外</button>
+    <button type="button" data-info-action="and" data-operator="contains">AND</button>
+    <button type="button" data-info-action="or" data-operator="contains">OR</button>
+    <button type="button" id="selection-more" aria-label="その他のInfo操作">⋯</button>
+  </div>
   <div class="drag-overlay" id="drag-overlay" hidden>ここに PCAP / PCAPNG をドロップ</div>
 </body>
 </html>

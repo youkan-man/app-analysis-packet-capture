@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from .engine import DissectionError, packet_detail, packet_list, search_fields
 from .filters import FilterError, compile_filter
+from .info_filters import parse_info_filters
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = Path(os.getenv("CAPTURE_DIR", "/tmp/packet-workbench"))
@@ -146,10 +147,15 @@ async def list_packets(
     capture_id: str, page: int = Query(1, ge=1),
     limit: int = Query(200, ge=1, le=500),
     filter: str = Query("", max_length=2048),
+    info: str = Query("", max_length=4096),
 ):
+    try:
+        info_groups = parse_info_filters(info)
+    except FilterError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     with guard:
         file_path, _ = store.get(capture_id)
-        return packet_list(file_path, filter, page, limit)
+        return packet_list(file_path, filter, page, limit, info_groups)
 
 
 @app.get("/api/captures/{capture_id}/packets/{number}")

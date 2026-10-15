@@ -10,10 +10,14 @@ from pathlib import Path
 import re
 import subprocess
 
+from .info_filters import InfoGroups, match_info
+
 TSHARK = os.getenv("TSHARK_BIN", "tshark")
 FIELDS = (
     "frame.number", "frame.time_relative", "_ws.col.Source",
     "_ws.col.Destination", "_ws.col.Protocol", "frame.len", "_ws.col.Info",
+    "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "eth.src", "eth.dst",
+    "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport",
 )
 MAX_LIST_BYTES = 32 * 1024 * 1024
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
@@ -51,7 +55,7 @@ def run_tshark(args: list[str], timeout: int = 90, limit: int = MAX_LIST_BYTES) 
     return stdout.decode("utf-8", "replace")
 
 
-def packet_list(path: Path, expression: str = "", page: int = 1, limit: int = 200) -> dict:
+def packet_list(path: Path, expression: str = "", page: int = 1, limit: int = 200, info_groups: InfoGroups = ()) -> dict:
     args = ["-r", str(path), "-T", "fields", "-E", "separator=/t",
             "-E", "quote=d", "-E", "occurrence=f"]
     for field in FIELDS:
@@ -66,11 +70,17 @@ def packet_list(path: Path, expression: str = "", page: int = 1, limit: int = 20
             continue
         if not fields[0].strip().isdigit():
             continue
+        if not match_info(fields[6], info_groups):
+            continue
+        decoded_fields = {
+            name: fields[index] for index, name in enumerate(FIELDS[7:], start=7)
+            if len(fields) > index and fields[index]
+        }
         rows.append({
             "number": int(fields[0]), "time": fields[1],
             "source": fields[2], "destination": fields[3],
             "protocol": fields[4], "length": fields[5],
-            "info": fields[6],
+            "info": fields[6], "fields": decoded_fields,
         })
     start = (page - 1) * limit
     return {"packets": rows[start:start + limit], "total": len(rows),

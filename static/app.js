@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const root = $("condition-root");
   const presets = document.querySelectorAll("[data-preset]");
-  const storage = { current: "packetcap.current", saved: "packetcap.filters", builder: "packetcap.builder" };
+  const storage = { current: "packetcap.current", saved: "packetcap.filters", builder: "packetcap.builder", info: "packetcap.info" };
   const defaultRule = () => ({ type: "rule", field: "ip.addr", operator: "==", kind: "address", value: "", negate: false });
   const defaultBuilder = () => ({ type: "group", join: "and", children: [defaultRule()], negate: false });
   const parseStored = (key, fallback) => {
@@ -18,6 +18,7 @@
   };
   if (!state.builder || state.builder.type !== "group") state.builder = defaultBuilder();
   if (!Array.isArray(state.saved)) state.saved = [];
+  let infoUi;
 
   function dom(tag, className = "", text = "") {
     const element = document.createElement(tag);
@@ -134,6 +135,8 @@
     status("パケットを解析中...", "busy");
     const id = state.active.id;
     const params = new URLSearchParams({ page: state.page, limit: state.pageSize, filter: state.filter });
+    const infoQuery = infoUi?.getQuery();
+    if (infoQuery) params.set("info", infoQuery);
     try {
       const result = await api("/api/captures/" + encodeURIComponent(id) + "/packets?" + params, { signal: controller.signal });
       if (state.listController !== controller || state.active?.id !== id) return;
@@ -162,8 +165,16 @@
       tr.setAttribute("aria-selected", String(packet.number === state.selected));
       tr.title = packet.info;
       const cells = [packet.number, packet.time, packet.source, packet.destination, packet.protocol, packet.length, packet.info];
-      for (const value of cells) tr.append(dom("td", "", String(value ?? "")));
-      tr.addEventListener("click", () => selectPacket(packet.number));
+      cells.forEach((value, column) => {
+        const cell = dom("td", "", column === 6 ? "" : String(value ?? ""));
+        if (column === 6) infoUi.decorateInfoCell(cell, packet);
+        tr.append(cell);
+      });
+      infoUi.attachPacketRow(tr, packet);
+      tr.addEventListener("click", event => {
+        if (event.target.closest(".packet-row-actions")) return;
+        selectPacket(packet.number);
+      });
       tr.addEventListener("keydown", e => {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectPacket(packet.number); }
       });
@@ -171,7 +182,7 @@
     }
     $("packet-empty").hidden = state.packets.length > 0;
     $("packet-empty").textContent = state.active
-      ? (state.filter ? "一致するパケットはありません。" : "パケットがありません。")
+      ? ((state.filter || infoUi?.getQuery()) ? "一致するパケットはありません。" : "パケットがありません。")
       : "PCAP / PCAPNG を開くとパケットが表示されます。";
     const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
     $("page-number").textContent = state.page + " / " + pages;
@@ -236,6 +247,7 @@
         const line = dom("div", "detail-leaf");
         line.append(dom("span", "detail-key", key + ": "));
         line.append(dom("span", "detail-value", String(value ?? "")));
+        infoUi.attachDetailField(line, key, value);
         parent.append(line);
       }
     }
@@ -287,6 +299,13 @@
     state.page = 1;
     presets.forEach(b => b.classList.toggle("active", b.dataset.preset === state.filter));
     loadPackets();
+  }
+  function appendDisplayExpression(expression, join) {
+    const previous = state.filter;
+    let next = expression;
+    if (previous && join === "and") next = "(" + previous + ") && (" + expression + ")";
+    if (previous && join === "or") next = "(" + previous + ") || (" + expression + ")";
+    applyExpression(next);
   }
   function persistBuilder() {
     try { localStorage.setItem(storage.builder, JSON.stringify(state.builder)); } catch { /* storage may be disabled */ }
@@ -474,11 +493,11 @@
     select.replaceChildren();
     const empty = dom("option", "", "保存済みフィルター");
     empty.value = ""; select.append(empty);
-    for (const item of state.saved) {
+    state.saved.forEach((item, index) => {
       const option = dom("option", "", item.name);
-      option.value = item.expression;
+      option.value = String(index + 1);
       select.append(option);
-    }
+    });
   }
   function wireEvents() {
     $("open-file").addEventListener("click", () => $("file-input").click());
@@ -507,7 +526,12 @@
     });
     $("apply-builder").addEventListener("click", applyBuilder);
     $("saved-filters").addEventListener("change", event => {
-      if (event.target.value) applyExpression(event.target.value);
+      const item = state.saved[Number(event.target.value) - 1];
+      if (!item) return;
+      // Old presets with only a Wireshark expression remain supported.
+      if (!infoUi.setGroups(item.infoGroups || [], false)) return;
+      try { localStorage.setItem(storage.info, JSON.stringify(infoUi.getGroups())); } catch {}
+      applyExpression(item.expression || "");
     });
     $("delete-saved-filter").addEventListener("click", () => {
       const select = $("saved-filters");
@@ -525,12 +549,16 @@
     });
     $("save-filter").addEventListener("click", () => {
       const expression = $("display-filter").value.trim();
-      if (!expression) { status("保存する式を入力してください", "error"); return; }
-      const name = prompt("フィルター名", expression);
+      const infoGroups = infoUi.getGroups();
+      if (!expression && !infoGroups.length) {
+        status("保存するフィルター条件を入力してください", "error");
+        return;
+      }
+      const name = prompt("フィルター名", expression || infoGroups[0][0].value);
       if (name === null) return;
       const label = name.trim().slice(0, 60);
       if (!label) return;
-      state.saved = [{ name: label, expression }, ...state.saved.filter(x => x.name !== label)].slice(0, 30);
+      state.saved = [{ name: label, expression, infoGroups }, ...state.saved.filter(x => x.name !== label)].slice(0, 30);
       localStorage.setItem(storage.saved, JSON.stringify(state.saved));
       renderSaved(); status("フィルターを保存しました");
     });
@@ -539,7 +567,9 @@
         event.preventDefault(); $("file-input").click();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault(); $("display-filter").focus(); $("display-filter").select();
+        event.preventDefault();
+        const field = event.shiftKey ? $("info-query") : $("display-filter");
+        field.focus(); field.select();
       }
       if (event.key === "Escape" && !$("filter-builder").hidden) toggleBuilder(false);
     });
@@ -562,6 +592,16 @@
   }
 
   wireEvents();
+  infoUi = new window.PacketInfoControls({
+    onInfoChange: () => {
+      try { localStorage.setItem(storage.info, JSON.stringify(infoUi.getGroups())); } catch {}
+      state.page = 1;
+      loadPackets();
+    },
+    onDisplayChange: appendDisplayExpression,
+    onStatus: status,
+  });
+  infoUi.setGroups(parseStored(storage.info, []), false);
   renderSaved();
   renderBuilder();
   $("filter-builder").hidden = true;
