@@ -32,7 +32,7 @@ jobs:
       - name: Check code and tests
         run: |
           python -m compileall -q app tests
-          node --check static/app.js
+          for file in static/app/*.js; do node --check "$file"; done
           pytest -q
       - name: Build Docker image
         run: docker build -t packet-capture-workbench:ci .

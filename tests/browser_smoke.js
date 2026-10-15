@@ -1,4 +1,4 @@
-/* Chromium coverage and genuine screenshots for Info selections, menus and filters. */
+/* Real Chromium journeys for generic screen filters, neighbours, pins and comparison. */
 const { chromium } = require("playwright");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -11,150 +11,98 @@ const assert = require("node:assert/strict");
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
 
-  async function rowsEqual(numbers) {
+  const realRows = () => page.locator("#packet-rows tr:not(.virtual-spacer)");
+  async function waitNumbers(numbers) {
     await page.waitForFunction(expected => {
-      const rows = Array.from(document.querySelectorAll("#packet-rows tr"));
-      return rows.length === expected.length && rows.every((row, index) =>
-        Number(row.cells[0]?.textContent) === expected[index]);
-    }, numbers, { timeout: 15000 });
+      const rows = Array.from(document.querySelectorAll("#packet-rows tr:not(.virtual-spacer)"));
+      return rows.length === expected.length && rows.every((row, index) => Number(row.dataset.number) === expected[index]);
+    }, numbers, { timeout: 20000 });
   }
   async function waitReady() {
-    await page.waitForFunction(() =>
-      !document.querySelector("#status-dot")?.classList.contains("busy")
-      && document.querySelector("#packet-bytes .hex-row"), null, { timeout: 15000 });
+    await page.waitForFunction(() => !document.querySelector("#status-dot")?.classList.contains("busy"), null, { timeout: 20000 });
+    if (await realRows().count()) await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
   }
-  async function clearAll() {
-    if (await page.locator("#info-clear").isEnabled()) await page.locator("#info-clear").click();
-    await page.locator("#clear-filter").click();
-    await rowsEqual([1, 2]);
+  async function clearFilters() {
+    if (!(await page.locator("#filter-drawer").isVisible())) await page.locator("#toggle-filter").click();
+    await page.locator("#clear-filters").click();
+    await waitNumbers([1,2,3,4,5,6,7]);
     await waitReady();
   }
 
   try {
     await page.goto("http://127.0.0.1:18080/", { waitUntil: "networkidle" });
+    assert.equal(await page.locator("#prev-page, #next-page, #page-number").count(), 0);
+    assert.equal(await page.locator("#info-query, .info-search").count(), 0);
     await page.locator("#file-input").setInputFiles(path.resolve("artifacts/test.pcap"));
-    await rowsEqual([1, 2]);
-    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
-    const firstInfo = await page.locator("#packet-rows tr").first().locator(".info-text").textContent();
-    assert.match(firstInfo, /query/i);
-    await page.screenshot({ path: "artifacts/packets-desktop.png", fullPage: true });
+    await waitNumbers([1,2,3,4,5,6,7]);
+    await waitReady();
+    const packetHeight = await page.locator(".packet-section").evaluate(node => node.getBoundingClientRect().height);
+    const inspectHeight = await page.locator(".inspect-grid").evaluate(node => node.getBoundingClientRect().height);
+    assert(packetHeight > inspectHeight, "packet data list should remain the primary surface");
+    await page.screenshot({ path: "artifacts/data-view-desktop.png", fullPage: true });
 
-    // Mouse text selection inside the Info cell must offer immediate actions.
+    await realRows().first().locator('td[data-field="source"]').click({ button: "right" });
+    await page.locator("#context-menu").waitFor({ state: "visible" });
+    assert.match(await page.locator("#context-menu").textContent(), /Source/);
+    await page.getByRole("menuitem", { name: "この値だけ表示" }).click();
+    await waitNumbers([1,5]);
+    assert.match(await page.locator("#active-filters").textContent(), /Source/);
+
+    await realRows().first().locator('td[data-field="source"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "前後1件" }).click();
+    await waitNumbers([1,2,4,5,6]);
+    assert.equal(await page.locator("#packet-rows tr.context-row").count(), 3);
+    await page.screenshot({ path: "artifacts/filter-neighbours-desktop.png", fullPage: true });
+    await clearFilters();
+
+    await page.locator("#close-filter").click();
     await page.evaluate(() => {
-      const text = document.querySelector("#packet-rows tr .info-text").firstChild;
-      const source = text.textContent;
-      const start = source.toLowerCase().indexOf("query");
-      if (start < 0) throw new Error("DNS query text absent");
+      const span = document.querySelector('#packet-rows tr[data-number="2"] td[data-field="source"] .value-text');
+      const text = span.firstChild;
       const range = document.createRange();
-      range.setStart(text, start);
-      range.setEnd(text, start + 5);
-      window.getSelection().removeAllRanges();
-      window.getSelection().addRange(range);
-      const r = range.getBoundingClientRect();
-      text.parentElement.dispatchEvent(new MouseEvent("mouseup", {
-        bubbles: true, button: 0, clientX: r.left + 1, clientY: r.top + 2,
-      }));
+      range.setStart(text, 0); range.setEnd(text, "203.0.113".length);
+      window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+      const rect = range.getBoundingClientRect();
+      span.parentElement.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: rect.left + 2, clientY: rect.top + 2 }));
     });
     await page.locator("#selection-tools").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#selection-text").textContent(), firstInfo.match(/query/i)[0]);
-    await page.screenshot({ path: "artifacts/info-selection-desktop.png", fullPage: true });
-    await page.locator("#selection-tools [data-info-action=replace]").click();
-    await rowsEqual([1]);
-    assert.match(await page.locator("#info-chips").textContent(), /query/i);
-    await waitReady();
-    await page.screenshot({ path: "artifacts/info-filtered-desktop.png", fullPage: true });
-    await clearAll();
+    await page.locator('#selection-tools [data-selection="replace"]').click();
+    await waitNumbers([2,6]);
+    await clearFilters();
 
-    // Right click the Info cell without selection: use full Info field.
-    await page.evaluate(() => window.getSelection().removeAllRanges());
-    await page.locator("#packet-rows tr").first().locator("td.info-cell").click({ button: "right" });
-    await page.locator("#packet-context-menu").waitFor({ state: "visible" });
-    assert.match(await page.locator(".context-heading").first().textContent(), /Info/);
-    await page.screenshot({ path: "artifacts/info-context-menu.png", fullPage: true });
-    await page.getByRole("menuitem", { name: "含まない 〔この条件に置換〕" }).click();
-    await rowsEqual([2]);
+    const rule = page.locator("#filter-groups .filter-rule").first();
+    await rule.locator("select").first().selectOption("protocol");
+    await rule.locator("select").nth(1).selectOption("equals");
+    await rule.locator("input").fill("TCP");
+    await page.locator("#apply-filters").click();
+    await waitNumbers([2,4,6]);
+    assert.equal(await page.locator(".advanced-filter[open]").count(), 0);
+    await page.screenshot({ path: "artifacts/filter-drawer-desktop.png", fullPage: true });
+    await clearFilters();
+    await page.locator("#close-filter").click();
 
-    // Mix OR with negative clause, remove one clause, then AND a second condition.
-    await page.locator("#info-query").fill("query");
-    await page.locator("#info-mode").selectOption("contains");
-    await page.locator("#info-join").selectOption("or");
-    await page.locator("#info-form button[type=submit]").click();
-    await rowsEqual([1, 2]);
-    assert.match(await page.locator("#info-chips").textContent(), /OR/);
-    await page.locator(".info-chip-remove").first().click();
-    await rowsEqual([1]);
-    await page.locator("#info-join").selectOption("and");
-    await page.locator("#info-query").fill("example.com");
-    await page.locator("#info-form button[type=submit]").click();
-    await rowsEqual([1]);
-    assert.match(await page.locator("#info-chips").textContent(), /AND/);
-    await clearAll();
+    await realRows().nth(1).locator(".pin-button").click();
+    await realRows().nth(3).locator(".pin-button").click();
+    assert.equal(await page.locator("#pin-chips .pin-chip").count(), 2);
+    await page.locator("#compare-pins").click();
+    await page.locator("#compare-panel").waitFor({ state: "visible" });
+    await page.locator("#compare-table tbody tr").first().waitFor({ timeout: 20000 });
+    assert.equal(await page.locator("#compare-table thead th").count(), 3);
+    assert(await page.locator("#compare-table td.different").count() > 0);
+    await page.screenshot({ path: "artifacts/compare-desktop.png", fullPage: true });
+    await page.locator("#close-compare").click();
 
-    // Existing display-filter engine still handles source addresses and ports.
-    await page.locator("#packet-rows tr").nth(1).locator("td").nth(2).click({ button: "right" });
-    await page.locator("#packet-context-menu").waitFor({ state: "visible" });
-    assert.match(await page.locator("#packet-context-menu").textContent(), /ip.src/);
-    await page.screenshot({ path: "artifacts/source-context-menu.png", fullPage: true });
-    await page.getByRole("menuitem", { name: "この値で表示" }).click();
-    await rowsEqual([2]);
-    assert.match(await page.locator("#display-filter").inputValue(), /ip.src == 203.0.113.2/);
-    await clearAll();
-
-    // Context-key / Shift+F10, plus keyboard dismissal and row action discovery.
-    const firstRow = page.locator("#packet-rows tr").first();
-    await firstRow.focus();
-    await firstRow.press("Shift+F10");
-    await page.locator("#packet-context-menu").waitFor({ state: "visible" });
+    const second = realRows().nth(1);
+    await second.focus(); await second.press("Shift+F10");
+    await page.locator("#context-menu").waitFor({ state: "visible" });
     await page.keyboard.press("Escape");
-    await page.locator("#packet-context-menu").waitFor({ state: "hidden" });
-    await firstRow.locator(".packet-row-actions").click();
-    await page.locator("#packet-context-menu").waitFor({ state: "visible" });
-    await page.keyboard.press("Escape");
-
-    // Case-sensitive Info matching is distinct from Wireshark display filters.
-    await page.locator("#info-case").check();
-    await page.locator("#info-join").selectOption("replace");
-    await page.locator("#info-query").fill("standard query");
-    await page.locator("#info-form button[type=submit]").click();
-    await rowsEqual([]);
-    await page.locator("#info-case").uncheck();
-    await page.locator("#info-form button[type=submit]").click();
-    await rowsEqual([1]);
-    await clearAll();
-
-    // Saved named filters capture both the native expression and Info clauses.
-    await page.locator("#display-filter").fill("dns");
-    await page.locator("#filter-form button[type=submit]").click();
-    await rowsEqual([1]);
-    await page.locator("#info-query").fill("query");
-    await page.locator("#info-join").selectOption("replace");
-    await page.locator("#info-form button[type=submit]").click();
-    await rowsEqual([1]);
-    page.once("dialog", dialog => dialog.accept("DNS + Info"));
-    await page.locator("#save-filter").click();
-    await clearAll();
-    await page.locator("#saved-filters").selectOption({ label: "DNS + Info" });
-    await rowsEqual([1]);
-    assert.equal(await page.locator("#display-filter").inputValue(), "dns");
-    assert.match(await page.locator("#info-chips").textContent(), /query/);
-
-    // Existing nested Wireshark field builder continues to work with Info predicates.
-    await page.locator("#toggle-builder").click();
-    await page.locator("#condition-root .rule-value").fill("192.0.2.10");
-    await page.locator("#apply-builder").click();
-    await rowsEqual([1]);
-    await waitReady();
-    await page.screenshot({ path: "artifacts/filter-builder-desktop.png", fullPage: true });
-
-    // Mobile remains navigable with visible Info controls and context actions.
-    await page.locator("#close-builder").click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.locator("#info-query").scrollIntoViewIfNeeded();
-    await page.screenshot({ path: "artifacts/packets-mobile.png", fullPage: true });
-    await firstRow.locator(".packet-row-actions").click();
-    await page.locator("#packet-context-menu").waitFor({ state: "visible" });
-    await page.screenshot({ path: "artifacts/info-context-mobile.png", fullPage: false });
+    await second.locator('td[data-field="info"]').click({ button: "right" });
+    await page.locator("#context-menu").waitFor({ state: "visible" });
+    await page.screenshot({ path: "artifacts/context-mobile.png", fullPage: false });
     assert.deepEqual(errors, []);
-    console.log("Browser smoke passed: substring selection, menus, Info AND/OR, raw display, presets, desktop/mobile");
-  } finally { await browser.close(); }
+    console.log("Browser smoke passed: continuous list, generic filters, neighbour context, pins and comparison");
+  } finally {
+    await browser.close();
+  }
 })().catch(error => { console.error(error); process.exit(1); });
