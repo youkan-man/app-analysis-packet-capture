@@ -16,6 +16,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Retain tested source
+        run: |
+          mkdir -p artifacts
+          git archive --format=zip HEAD > artifacts/tested-source.zip
+          git rev-parse HEAD > artifacts/tested-commit.txt
       - name: Python 3.12
         uses: actions/setup-python@v5
         with:
