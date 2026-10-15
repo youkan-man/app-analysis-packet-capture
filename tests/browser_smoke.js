@@ -30,7 +30,11 @@ const assert = require("node:assert/strict");
   }
 
   async function selectText(locator, text) {
-    await locator.scrollIntoViewIfNeeded();
+    // Drawer/viewport changes rerender virtual rows through ResizeObserver.
+    // Scroll synchronously, then reacquire the locator after layout has settled.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await locator.evaluate(node => node.scrollIntoView({block: 'nearest', inline: 'nearest'}));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const box = await locator.evaluate((node, text) => {
       const textNode = node.firstChild;
       const start = textNode.textContent.indexOf(text);
