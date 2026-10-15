@@ -47,7 +47,7 @@
     total: 0, matched: 0, displayed: 0, selected: null, selectedDetail: null,
     listController: null, detailController: null,
     view: defaultView(), pins: [], saved: parseStored(storage.saved, []),
-    menuReturnFocus: null, selection: null, compareDetails: new Map(), filterOpen: false,
+    menuReturnFocus: null, compareDetails: new Map(), filterOpen: false,
   };
   if (!Array.isArray(state.saved)) state.saved = [];
 

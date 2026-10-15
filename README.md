@@ -25,9 +25,9 @@ Default UI font is 12 px, with 11 px data text. The **文字** selector supports
 
 ## Screen-driven filters, pins and comparison
 
-Every displayed packet column uses the same filter mechanism; Info has no dedicated search feature. Right-click a value to include, exclude or combine it with AND/OR. Select part of a text value to filter by that substring. Protocol-tree fields can also become typed rules; Wireshark syntax is not needed for these operations. The optional raw expression remains under an advanced disclosure.
+Every displayed packet column uses the same filter mechanism; Info has no dedicated search feature. Right-click a value to include, exclude or combine it with AND/OR. Select part of a text value and right-click to filter by that substring; selecting text alone never opens a popup or changes a filter. Protocol-tree fields can also become typed rules; Wireshark syntax is not needed for these operations. The optional raw expression remains under an advanced disclosure.
 
-The filter context menu offers translucent records before and after each match. These rows do not count as matches. Pins remain available across filtering and are saved per capture in the browser. Two or more pins can be compared field-by-field, with a differences-only option.
+The filter context menu offers translucent records before and after each match. These rows do not count as matches. Double-click a packet row to pin it. Double-clicking an already pinned row leaves it pinned without adding duplicates; use the pin button or context menu to unpin. Pins remain available across filtering and are saved per capture in the browser. Two or more pins can be compared field-by-field, with a differences-only option.
 
 ## Send/receive hierarchy
 

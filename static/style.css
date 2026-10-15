@@ -133,10 +133,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .menu-divider { margin: 5px 3px; border-top: 1px solid #3a5168; }
 .menu-action { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
 .menu-action:hover, .menu-action:focus-visible { background: #28618c; color: #fff; }
-.selection-tools { position: fixed; z-index: 59; display: flex; align-items: center; gap: 4px; max-width: calc(100vw - 10px); padding: 5px; border: 1px solid #69b6df; border-radius: 5px; background: #1c354c; box-shadow: 0 8px 24px #0008; }
-.selection-text { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b6d4e7; }
-.selection-tools button { padding: 5px 7px; border: 1px solid #4b6b87; border-radius: 4px; background: #24527c; }
-.selection-tools button:hover { background: #347eb6; }
 
 .compare-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; height: min(58%, 520px); display: flex; flex-direction: column; background: #0f1a27; border-top: 2px solid #58a9d7; box-shadow: 0 -12px 32px #0009; }
 .compare-head strong { flex: 1; }
@@ -176,8 +172,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .details-panel { border-right: 0; border-bottom: 1px solid var(--line); }
   .active-filters, .pin-bar { min-height: 32px; }
   .filter-chip, .pin-chip { max-width: 250px; }
-  .selection-text { display: none; }
-  .selection-tools button { padding: 5px; }
   .compare-panel { height: 68%; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

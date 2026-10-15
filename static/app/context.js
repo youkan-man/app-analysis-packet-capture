@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const A = window.PacketApp;
-  const { $, state, columns, el, button, status, hasFilters } = A;
+  const { $, state, columns, el, button, hasFilters } = A;
   A.filters = A.filters || {};
 
   function showPacketMenu(packet, field, cell, x, y) {
@@ -25,6 +25,7 @@
         { label: selected ? "選択部分を含まない" : "この文字列を含まない",
           run: () => A.filters.addRule({ ...exact, operator: "not_contains", value: part }, "and") });
     }
+    appendSelectedTextActions(items, exact, selected);
     items.push({divider: true}, {label: "送受信の階層を解析", run: () => A.relations.open(packet.number)});
     items.push({ divider: true }, {
       label: A.pins.isPinned(packet.number) ? "ピンを解除" : "このレコードをピン留め",
@@ -57,11 +58,20 @@
         { label: "選択文字列を含む", run: () => A.filters.addRule({ ...exact, operator: "contains", value: part }, "replace") },
         { label: "選択文字列を含まない", run: () => A.filters.addRule({ ...exact, operator: "not_contains", value: part }, "and") });
     }
+    appendSelectedTextActions(items, exact, selected);
     items.push({ divider: true },
       { label: "値をコピー", run: () => A.clipboard.copy(value) },
       { label: "表示値をコピー", run: () => A.clipboard.copy(metadata?.display_value || element.textContent) });
     if (metadata?.raw_value) items.push({label: "生値（16進）をコピー", run: () => A.clipboard.copy(metadata.raw_value)});
     showMenu(items, x, y);
+  }
+  function appendSelectedTextActions(items, exact, selected) {
+    if (!selected || exact.kind !== "string") return;
+    const contains = {...exact, operator: "contains", value: selected};
+    items.push(
+      {label: "選択部分を含む条件をANDで追加", run: () => A.filters.addRule(contains, "and")},
+      {label: "選択部分を含む条件をORで追加", run: () => A.filters.addRule(contains, "or")},
+    );
   }
   function inferKind(field, value) {
     const text = String(value ?? "");
@@ -70,7 +80,6 @@
     return "string";
   }
   function showMenu(items, x, y) {
-    hideSelectionTools();
     const menu = $("context-menu");
     state.menuReturnFocus = document.activeElement;
     menu.replaceChildren();
@@ -115,29 +124,9 @@
         || !element.contains(selection.anchorNode) || !element.contains(selection.focusNode)) return "";
     return selection.toString().trim();
   }
-  function selectionFromElement(event, element, descriptor) {
-    if (event.button !== 0) return;
-    const value = selectedTextInside(element);
-    if (!value) return;
-    state.selection = { ...descriptor, value };
-    $("selection-text").textContent = value.length > 34 ? value.slice(0, 34) + "…" : value;
-    const rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
-    placePopup($("selection-tools"), rect.left, rect.top > 55 ? rect.top - 42 : rect.bottom + 6);
-  }
-  function hideSelectionTools() {
-    $("selection-tools").hidden = true;
-    state.selection = null;
-  }
-  function useSelection(action) {
-    if (!state.selection) return;
-    const base = {...state.selection, operator: action === "exclude" ? "not_contains" : "contains", case_sensitive: false};
-    A.filters.addRule(base, action === "replace" ? "replace" : action === "or" ? "or" : "and");
-    hideSelectionTools();
-  }
   async function copyText(value) { return A.clipboard.copy(value); }
 
   Object.assign(A.filters, {
     showPacketMenu, showDetailMenu, inferKind, showMenu, hideMenu,
-    selectionFromElement, hideSelectionTools, useSelection,
   });
 })();

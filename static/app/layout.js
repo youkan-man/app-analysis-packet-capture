@@ -29,7 +29,7 @@
       if(event.button!==0)return;
       event.preventDefault();node.focus();node.setPointerCapture(event.pointerId);
       drag={start:axis()==='x'?event.clientX:event.clientY,value:read(),scale:extent()};
-      document.body.classList.add('pane-resizing');A.filters.hideSelectionTools();
+      document.body.classList.add('pane-resizing');
     });
     node.addEventListener('pointermove',event=>{
       if(!drag)return;

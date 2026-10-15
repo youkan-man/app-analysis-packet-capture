@@ -48,8 +48,6 @@
           event.preventDefault(); A.clipboard.copy(field.value);
         }
       });
-      if (field.kind === 'string') line.addEventListener('mouseup', event => A.filters.selectionFromElement(
-        event, label, {scope: 'wireshark', field: field.name, kind: field.kind}));
       if (group) {group.append(line); parent.append(group); field.children.forEach(child => append(group, child, depth + 1));}
       else parent.append(line);
     }

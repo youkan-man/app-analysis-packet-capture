@@ -61,7 +61,6 @@
       A.filters.loadSavedFilter(Number(event.target.value) - 1);
     });
     $("packet-scroll").addEventListener("scroll", () => {
-      A.filters.hideSelectionTools();
       A.viewer.renderVirtualRows();
     });
     $("open-compare").addEventListener("click", A.pins.openCompare);
@@ -69,16 +68,9 @@
     $("close-compare").addEventListener("click", A.pins.closeCompare);
     $("clear-pins").addEventListener("click", A.pins.clearPins);
     $("diff-only").addEventListener("change", A.pins.renderComparison);
-    for (const control of $("selection-tools").querySelectorAll("[data-selection]")) {
-      control.addEventListener("click", () => A.filters.useSelection(control.dataset.selection));
-    }
     document.addEventListener("pointerdown", event => {
       if (!$("context-menu").hidden && !$("context-menu").contains(event.target)) {
         A.filters.hideMenu();
-      }
-      if (!$("selection-tools").hidden && !$("selection-tools").contains(event.target)
-          && !event.target.closest(".value-cell,.detail-value")) {
-        A.filters.hideSelectionTools();
       }
     });
     document.addEventListener("keydown", event => {
@@ -92,14 +84,12 @@
       }
       if (event.key === "Escape") {
         if (!$("context-menu").hidden) A.filters.hideMenu(true);
-        else if (!$("selection-tools").hidden) A.filters.hideSelectionTools();
         else if (!$("compare-panel").hidden) A.pins.closeCompare();
         else if (state.filterOpen) A.filters.toggleFilter(false);
       }
     });
     window.addEventListener("resize", () => {
       A.filters.hideMenu();
-      A.filters.hideSelectionTools();
       A.viewer.renderVirtualRows(true);
     });
     let dragDepth = 0;
