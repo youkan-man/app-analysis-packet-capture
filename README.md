@@ -20,6 +20,9 @@ Drag/drop or upload a PCAP or PCAPNG capture. The application stores capture fil
 - Unmodified Wireshark display-filter expressions passed to the installed TShark (-Y).
 - Visual filter editor with nested AND/OR groups, NOT, exists, typed string/number/IP-MAC values, comparisons, contains and matches.
 - Real installed TShark field lookup, quick protocol filter presets, saved filters, paging, keyboard shortcuts, drag and drop.
+- **Info-column substring filtering:** select any part of an Info cell and use the selection toolbar (include, exclude, AND, OR), or right-click the cell and choose contains / does-not-contain / exact-match. An always-visible Info search row also supports case sensitivity, starts/ends-with and AND/OR groups. Active conditions remain visible as removable chips.
+- **Context menus:** right-click (or use Shift+F10 or the row ⋯ button) to create native Wireshark display filters from source/destination addresses, ports, protocols or decoded detail fields. Keyboard and touch users can use the explicit row action button.
+- Named filter presets now save both the Wireshark expression and Info conditions, preserving older expression-only presets.
 - Dense desktop and responsive mobile layout.
 
 ## Architecture
@@ -29,6 +32,8 @@ Drag/drop or upload a PCAP or PCAPNG capture. The application stores capture fil
 - app/main.py: HTTP routes, file-id validation and persisted file metadata.
 - static/app.js: User interaction and browser-local saved display filters; never executes raw HTML.
 - static/style.css: UI layout.
+
+**Info search compatibility:** Wireshark added filterable `_ws.col.info` in 4.2.0. This app supports older bundled TShark releases too: it asks TShark to dissect the capture and applies Info text predicates to the resulting Info column. All Info clauses (OR groups of AND rules) are composed with the native Wireshark expression by intersection, and the result count/paging is computed after both filters. The native expression box remains native Wireshark syntax; Info chips are not presented as Wireshark display expressions.
 
 The Docker container is nonroot, does not need network capture privileges, and drops Linux capabilities. Neither live packet capture nor privileged device access is implemented. Display-filter compatibility depends on the TShark version bundled by Debian. Unsupported dissectors or vendor-specific decoders are not silently implemented.
 
@@ -43,7 +48,7 @@ GitHub Actions workflow Build and verify runs:
 1. Python unit and FastAPI tests, including deterministic PCAP and PCAPNG integration decoded using real TShark.
 2. Frontend JavaScript syntax validation.
 3. Docker image build, isolated nonroot container and health smoke test.
-4. Real Chromium browser actions for upload, rule builder, Wireshark text filter and responsive layout.
+4. Real Chromium browser actions for upload, Info substring selection, context menus, AND/OR and case sensitivity, combined preset persistence, rule builder and responsive layout.
 5. Browser screenshots captured as Actions artifacts (packets-desktop.png, filter-builder-desktop.png, packets-mobile.png).
 
 Local run (with Wireshark/TShark installed):
