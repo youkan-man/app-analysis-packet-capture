@@ -70,6 +70,7 @@ const assert = require("node:assert/strict");
     await waitNumbers([2,6]);
     await clearFilters();
 
+    await page.locator("#add-condition").click();
     const rule = page.locator("#filter-groups .filter-rule").first();
     await rule.locator("select").first().selectOption("protocol");
     await rule.locator("select").nth(1).selectOption("equals");
