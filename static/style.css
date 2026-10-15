@@ -267,3 +267,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .info-form .button { padding: 7px 8px; }
   .info-form .filter-label { white-space: nowrap; }
 }
+
+
+/* Keep capture context visible on phones instead of vertically wrapping every preset. */
+@media (max-width: 520px) {
+  .filter-shortcuts { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .filter-shortcuts > * { flex: 0 0 auto; }
+  .info-form { display: grid; grid-template-columns: minmax(85px, 1fr) minmax(85px, 1fr) auto auto; gap: 5px; }
+  .info-form .filter-label { grid-column: 1; grid-row: 1; width: auto; }
+  #info-query { grid-column: 2 / 4; grid-row: 1; width: 100%; min-width: 0; flex-basis: auto; }
+  #info-form button[type=submit] { grid-column: 4; grid-row: 1; }
+  #info-mode { grid-column: 1; grid-row: 2; width: 100%; min-width: 0; }
+  #info-join { grid-column: 2; grid-row: 2; width: 100%; min-width: 0; }
+  .info-case { grid-column: 3; grid-row: 2; }
+  #info-clear { grid-column: 4; grid-row: 2; white-space: nowrap; }
+}
