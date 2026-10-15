@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Packet Capture Workbench</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-brand"><span class="brand-mark" aria-hidden="true">▧</span><div><strong>Packet Capture</strong><span>Workbench</span></div></div>
+    <div class="header-current" id="current-file">キャプチャを選択</div>
+    <div class="header-actions">
+      <button type="button" class="button button-primary" id="open-file">＋ ファイルを開く</button>
+      <input type="file" id="file-input" accept=".pcap,.pcapng,.cap,application/vnd.tcpdump.pcap" hidden>
+      <button type="button" class="button" id="refresh" title="一覧を再読み込み">↻</button>
+    </div>
+  </header>
+
+  <div class="filter-section">
+    <form id="filter-form" class="filter-form">
+      <label for="display-filter" class="filter-label">表示フィルター</label>
+      <input id="display-filter" type="text" autocomplete="off" spellcheck="false" placeholder="ip.addr == 192.168.1.10 && tcp.port == 443" aria-label="Wireshark表示フィルター">
+      <button type="submit" class="button button-primary">適用 <span aria-hidden="true">↵</span></button>
+      <button type="button" class="button" id="clear-filter">クリア</button>
+      <button type="button" class="button builder-trigger" id="toggle-builder" aria-controls="filter-builder" aria-expanded="false">条件ビルダー <span aria-hidden="true">◫</span></button>
+    </form>
+    <div class="filter-shortcuts" role="group" aria-label="定型フィルター">
+      <span class="shortcut-label">クイック</span>
+      <button data-preset="tcp" type="button">TCP</button>
+      <button data-preset="udp" type="button">UDP</button>
+      <button data-preset="dns" type="button">DNS</button>
+      <button data-preset="http || http2" type="button">HTTP</button>
+      <button data-preset="tls" type="button">TLS</button>
+      <button data-preset="tcp.analysis.retransmission" type="button">再送</button>
+      <button data-preset="_ws.expert.severity == error" type="button">エラー</button>
+      <span class="shortcut-divider"></span>
+      <label for="saved-filters" class="visually-hidden">保存済みフィルター</label>
+      <select id="saved-filters" title="保存済みフィルター"><option value="">保存済みフィルター</option></select>
+      <button id="save-filter" type="button">保存</button>
+    </div>
+  </div>
+
+  <div class="app-workspace" id="workspace">
+    <aside class="sources-panel" aria-label="キャプチャファイル">
+      <div class="panel-heading"><span>ファイル</span><span id="capture-count" class="count">0</span></div>
+      <div id="capture-list" class="capture-list"></div>
+      <div class="drop-hint" id="drop-target" tabindex="0" role="button" aria-label="PCAPファイルを追加">＋ PCAP / PCAPNG を追加</div>
+      <div class="sources-footer" id="source-info">ファイルを選択してください</div>
+    </aside>
+
+    <main class="packets-workspace">
+      <section class="packet-panel" aria-label="パケット一覧">
+        <div class="panel-heading">
+          <div class="panel-title">パケット一覧 <span id="packet-count" class="count">0</span></div>
+          <div class="pager">
+            <span id="page-range">0 件</span>
+            <button id="prev-page" type="button" aria-label="前のページ">‹</button>
+            <span id="page-number">1 / 1</span>
+            <button id="next-page" type="button" aria-label="次のページ">›</button>
+          </div>
+        </div>
+        <div class="packet-scroll" id="packet-scroll" tabindex="0">
+          <table class="packet-table" aria-label="キャプチャされたパケット">
+            <colgroup><col class="c-no"><col class="c-time"><col class="c-address"><col class="c-address"><col class="c-proto"><col class="c-size"><col></colgroup>
+            <thead><tr><th>No.</th><th>Time (s)</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Length</th><th>Info</th></tr></thead>
+            <tbody id="packet-rows"></tbody>
+          </table>
+          <div id="packet-empty" class="empty-view">PCAP / PCAPNG を開くとパケットが表示されます。</div>
+        </div>
+      </section>
+
+      <div class="inspect-grid">
+        <section class="details-panel" aria-label="プロトコル詳細">
+          <div class="panel-heading">プロトコル詳細 <span id="selected-number" class="count">—</span></div>
+          <div class="detail-content" id="packet-details"><div class="empty-detail">パケットを選択してください</div></div>
+        </section>
+        <section class="bytes-panel" aria-label="パケットバイト">
+          <div class="panel-heading">パケットバイト <span id="byte-count" class="count">0 B</span></div>
+          <div class="bytes-columns" aria-hidden="true"><span>OFFSET</span><span>HEX</span><span>ASCII</span></div>
+          <div id="packet-bytes" class="hex-content" tabindex="0"></div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="builder-panel" id="filter-builder" aria-label="フィルタービルダー" hidden>
+      <div class="builder-header">
+        <strong>フィルタービルダー</strong>
+        <button type="button" class="icon-button" id="close-builder" aria-label="ビルダーを閉じる">×</button>
+      </div>
+      <div class="builder-toolbar">
+        <button type="button" id="builder-from-filter" class="button">現在の式を保持</button>
+        <button type="button" id="builder-reset" class="button">条件を初期化</button>
+      </div>
+      <div class="builder-scroll">
+        <div id="condition-root"></div>
+      </div>
+      <div class="builder-footer">
+        <label for="visual-expression">生成されたフィルター式</label>
+        <textarea id="visual-expression" readonly rows="3" aria-live="polite"></textarea>
+        <div id="builder-error" class="builder-error" role="alert"></div>
+        <button type="button" id="apply-builder" class="button button-primary button-wide">この条件で適用 ↵</button>
+      </div>
+    </aside>
+  </div>
+  <footer class="statusbar">
+    <span class="status-indicator" id="status-dot"></span>
+    <span id="status-message" role="status" aria-live="polite">準備完了</span>
+    <span class="status-spacer"></span>
+    <span id="status-total">表示 0 / 0</span>
+    <span class="status-separator"></span>
+    <span>TShark / Wireshark</span>
+  </footer>
+  <div class="drag-overlay" id="drag-overlay" hidden>ここに PCAP / PCAPNG をドロップ</div>
+</body>
+</html>

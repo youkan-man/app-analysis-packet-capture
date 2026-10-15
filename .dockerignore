@@ -1,0 +1,10 @@
+.git
+.github
+.local_relay
+**/__pycache__
+**/*.pyc
+tests
+.venv
+*.pcap
+*.pcapng
+captures
