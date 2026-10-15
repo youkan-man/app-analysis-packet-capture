@@ -48,7 +48,7 @@
     <aside class="sources-panel" aria-label="キャプチャファイル">
       <div class="panel-heading"><span>ファイル</span><span id="capture-count" class="count">0</span></div>
       <div id="capture-list" class="capture-list"></div>
-      <div class="drop-hint" id="drop-target" tabindex="0" role="button" aria-label="PCAPファイルを追加">＋ PCAP / PCAPNG を追加</div>
+      <div class="drop-hint" id="drop-target" tabindex="0" role="button" aria-label="PCAPファイルを追加">＋ ファイル追加</div>
       <div class="sources-footer" id="source-info">ファイルを選択してください</div>
     </aside>
 
@@ -80,8 +80,10 @@
         </section>
         <section class="bytes-panel" aria-label="パケットバイト">
           <div class="panel-heading">パケットバイト <span id="byte-count" class="count">0 B</span></div>
-          <div class="bytes-columns" aria-hidden="true"><span>OFFSET</span><span>HEX</span><span>ASCII</span></div>
-          <div id="packet-bytes" class="hex-content" tabindex="0"></div>
+          <div class="byte-viewport" tabindex="0" aria-label="パケットのバイトデータをスクロール">
+            <div class="bytes-columns" aria-hidden="true"><span>OFFSET</span><span>HEX</span><span>ASCII</span></div>
+            <div id="packet-bytes" class="hex-content"></div>
+          </div>
         </section>
       </div>
     </main>

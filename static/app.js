@@ -219,11 +219,15 @@
     container.replaceChildren();
     let rendered = 0;
     function entry(parent, key, value, depth) {
-      if (++rendered > 700 || depth > 13) return;
+      if (++rendered > 700 || depth > 13 || key.endsWith("_raw")) return;
       if (value !== null && typeof value === "object") {
         const block = dom("details");
         if (depth < 2) block.open = true;
-        const summary = dom("summary", "", key + (Array.isArray(value) ? " [" + value.length + "]" : ""));
+        const names = { frame: "Frame", eth: "Ethernet II", ip: "Internet Protocol Version 4",
+          ipv6: "Internet Protocol Version 6", tcp: "Transmission Control Protocol",
+          udp: "User Datagram Protocol", dns: "Domain Name System", tls: "Transport Layer Security" };
+        const summary = dom("summary", "", (depth === 0 ? (names[key] || key) : key)
+          + (Array.isArray(value) ? " [" + value.length + "]" : ""));
         block.append(summary);
         const items = Array.isArray(value) ? value.map((item, i) => [String(i + 1), item]) : Object.entries(value);
         for (const [name, data] of items) entry(block, name, data, depth + 1);
