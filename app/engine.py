@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 
+from .inspection import parse_pdml
 from .filters import FilterGroups, compile_native_rules, match_column_rules, split_group
 
 TSHARK = os.getenv("TSHARK_BIN", "tshark")
@@ -100,19 +101,13 @@ def matching_frame_numbers(path: Path, expression: str) -> frozenset[int]:
     return frozenset(int(line.strip()) for line in content.splitlines() if line.strip().isdigit())
 
 
-def packet_list(
-    path: Path,
-    raw_expression: str = "",
-    groups: FilterGroups = (),
-    context: int = 0,
-) -> dict:
+def packet_list(path: Path, raw_expression: str = "", groups: FilterGroups = (), context: int = 0) -> dict:
     """Return a continuous filtered view plus translucent neighbouring records."""
     if not (0 <= context <= MAX_CONTEXT):
         raise DissectionError("前後表示は0〜50件で指定してください")
     rows = decoded_rows(path)
     all_numbers = frozenset(row["number"] for row in rows)
     filtered = bool(raw_expression or groups)
-
     if not filtered:
         matching = all_numbers
     elif not groups:
@@ -136,7 +131,6 @@ def packet_list(
                 if row["number"] in frames and match_column_rules(row, column_rules):
                     matching_set.add(row["number"])
         matching = frozenset(matching_set)
-
     matching_indexes = {index for index, row in enumerate(rows) if row["number"] in matching}
     if filtered and context and matching_indexes:
         included_indexes: set[int] = set()
@@ -144,7 +138,6 @@ def packet_list(
             included_indexes.update(range(max(0, index - context), min(len(rows), index + context + 1)))
     else:
         included_indexes = matching_indexes
-
     packets: list[dict] = []
     for index in sorted(included_indexes):
         row = dict(rows[index])
@@ -152,15 +145,9 @@ def packet_list(
         row["is_match"] = is_match
         row["context_distance"] = 0 if is_match else min(abs(index - match) for match in matching_indexes)
         packets.append(row)
-
     return {
-        "packets": packets,
-        "total": len(rows),
-        "matched": len(matching_indexes),
-        "displayed": len(packets),
-        "filtered": filtered,
-        "context": context,
-        "raw_filter": raw_expression,
+        "packets": packets, "total": len(rows), "matched": len(matching_indexes),
+        "displayed": len(packets), "filtered": filtered, "context": context, "raw_filter": raw_expression,
     }
 
 
@@ -185,7 +172,7 @@ def _find_raw(data: object) -> str:
 
 def packet_detail(path: Path, number: int) -> dict:
     selector = f"frame.number == {number}"
-    content = run_tshark(["-r", str(path), "-Y", selector, "-T", "json", "-x"], timeout=45, limit=MAX_DETAIL_BYTES)
+    content = run_tshark(["-2", "-r", str(path), "-Y", selector, "-T", "json", "-x"], timeout=45, limit=MAX_DETAIL_BYTES)
     try:
         packets = json.loads(content)
         if not isinstance(packets, list) or not packets:
@@ -196,14 +183,18 @@ def packet_detail(path: Path, number: int) -> dict:
         raw = _find_raw(layers)
         if not raw:
             raw = _find_raw(json.loads(run_tshark(
-                ["-r", str(path), "-Y", selector, "-T", "jsonraw"],
-                timeout=45, limit=MAX_DETAIL_BYTES,
+                ["-r", str(path), "-Y", selector, "-T", "jsonraw"], timeout=45, limit=MAX_DETAIL_BYTES,
             )))
     except (ValueError, TypeError, KeyError) as exc:
         if isinstance(exc, DissectionError):
             raise
         raise DissectionError("TShark の詳細解析結果を読み取れません") from exc
-    return {"number": number, "layers": layers, "hex": raw}
+    try:
+        pdml = run_tshark(["-2", "-r", str(path), "-Y", selector, "-T", "pdml"], timeout=45, limit=MAX_DETAIL_BYTES)
+        fields = parse_pdml(pdml, raw, {f["name"]: f["type"] for f in get_fields()})
+    except ValueError as exc:
+        raise DissectionError("詳細項目の位置情報を解析できません") from exc
+    return {"number": number, "layers": layers, "hex": raw, "fields": fields}
 
 
 @lru_cache(maxsize=1)

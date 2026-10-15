@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .engine import DissectionError, packet_detail, packet_list, search_fields
+from .relationships import analyze
 from .filters import FilterError, parse_filter_groups
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +27,7 @@ MAGICS = {
 }
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 guard = threading.RLock()
-app = FastAPI(title="Packet Capture Workbench", version="0.2.0")
+app = FastAPI(title="Packet Capture Workbench", version="0.3.0")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
@@ -138,30 +139,35 @@ async def delete_capture(capture_id: str):
 
 
 @app.get("/api/captures/{capture_id}/packets")
-async def list_packets(
-    capture_id: str,
-    raw: str = Query("", max_length=2048),
-    view: str = Query("", max_length=16384),
-    context: int = Query(0, ge=0, le=50),
-):
+def list_packets(capture_id: str, raw: str = Query("", max_length=2048),
+                 view: str = Query("", max_length=16384), context: int = Query(0, ge=0, le=50)):
     try:
         groups = parse_filter_groups(view)
     except FilterError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     with guard:
         file_path, _ = store.get(capture_id)
-        return packet_list(file_path, raw, groups, context)
+    return packet_list(file_path, raw, groups, context)
 
 
 @app.get("/api/captures/{capture_id}/packets/{number}")
-async def get_packet(capture_id: str, number: int):
+def get_packet(capture_id: str, number: int):
     if number < 1:
         raise HTTPException(status_code=422, detail="パケット番号が不正です")
     with guard:
         file_path, _ = store.get(capture_id)
-        return packet_detail(file_path, number)
+    return packet_detail(file_path, number)
 
 
 @app.get("/api/fields")
-async def suggest_fields(q: str = Query("", max_length=100)):
+def suggest_fields(q: str = Query("", max_length=100)):
     return {"items": search_fields(q)}
+
+
+@app.get("/api/captures/{capture_id}/packets/{number}/relations")
+def packet_relations(capture_id: str, number: int):
+    if number < 1:
+        raise HTTPException(status_code=422, detail="パケット番号が不正です")
+    with guard:
+        file_path, _ = store.get(capture_id)
+    return analyze(file_path, number)
