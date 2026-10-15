@@ -19,7 +19,7 @@ body {font-size:var(--ui-font-size)}
 .filter-open #split-right,.relations-open #split-right {display:block}
 .filter-drawer,.relations-panel {grid-column:5;grid-row:1;position:static;min-width:0;border-left:0}
 .packet-section {grid-row:1}
-#split-packets {grid-row:2}
+#split-packets {grid-row:2;z-index:6}
 .inspect-grid {grid-row:3;grid-template-columns:minmax(100px,var(--detail-share)) 5px minmax(100px,1fr);border-top:0}
 .details-panel {grid-column:1;grid-row:1;border:0}
 #split-inspect {grid-column:2;grid-row:1}
@@ -28,7 +28,10 @@ body {font-size:var(--ui-font-size)}
 .splitter[data-axis=x] {cursor:col-resize}
 .splitter[data-axis=y] {cursor:row-resize}
 .splitter:hover,.splitter:focus-visible {background:#4892c0}
-.splitter::after {content:'';position:absolute;inset:-2px}
+/* Expand across the thin edge only; never invade the adjacent perpendicular boundary. */
+.splitter::after {content:'';position:absolute;inset:0}
+.splitter[data-axis=x]::after {inset:0 -2px}
+.splitter[data-axis=y]::after {inset:-2px 0}
 .pane-resizing,.pane-resizing * {user-select:none!important;cursor:grabbing!important}
 .packet-table {min-width:0;font-size:calc(var(--ui-font-size) - 1px)}
 .packet-table th {height:26px;padding:4px 7px}
