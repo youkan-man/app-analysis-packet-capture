@@ -22,6 +22,7 @@ const assert = require("node:assert/strict");
     if (await page.locator("#info-clear").isEnabled()) await page.locator("#info-clear").click();
     await page.locator("#clear-filter").click();
     await rowsEqual([1, 2]);
+    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
   }
 
   try {
@@ -55,6 +56,7 @@ const assert = require("node:assert/strict");
     await page.locator("#selection-tools [data-info-action=replace]").click();
     await rowsEqual([1]);
     assert.match(await page.locator("#info-chips").textContent(), /query/i);
+    await page.locator("#packet-bytes .hex-row").first().waitFor({ timeout: 15000 });
     await page.screenshot({ path: "artifacts/info-filtered-desktop.png", fullPage: true });
     await clearAll();
 
