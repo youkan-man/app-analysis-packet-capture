@@ -71,7 +71,7 @@
   }
   function selectBytes(start, end = start) {
     const max = model.hex.length / 2 - 1;
-    if (max < 0) return;
+    if (max < 0 || !Number.isFinite(start) || !Number.isFinite(end)) return;
     const lo = Math.max(0, Math.min(start, end, max)), hi = Math.min(max, Math.max(start, end, 0));
     model.selection = {start: lo, end: hi};
     const candidates = model.fields.filter(field => {
@@ -179,12 +179,12 @@
         event.preventDefault(); copyBytes(); return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-        event.preventDefault(); selectBytes(0, model.hex.length / 2 - 1);
+        event.preventDefault(); model.anchor = 0; selectBytes(0, model.hex.length / 2 - 1);
       }
       if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) {
         event.preventDefault();
         const delta = {ArrowLeft:-1,ArrowRight:1,ArrowUp:-16,ArrowDown:16}[event.key];
-        const next = Math.max(0, Math.min(model.hex.length / 2 - 1, (model.selection?.end ?? 0) + delta[event.key]));
+        const next = Math.max(0, Math.min(model.hex.length / 2 - 1, (model.selection?.end ?? 0) + delta));
         if (!event.shiftKey) model.anchor = next;
         selectBytes(model.anchor, next);
       }
