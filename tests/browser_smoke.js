@@ -18,7 +18,10 @@ const assert = require("node:assert/strict");
     await page.locator("#toggle-builder").click();
     await page.locator("#condition-root .rule-value").fill("192.0.2.10");
     await page.locator("#apply-builder").click();
-    await page.locator("#packet-rows tr").first().waitFor();
+    await page.waitForFunction(() => {
+      const rows = document.querySelectorAll("#packet-rows tr");
+      return rows.length === 1 && rows[0].querySelector("td")?.textContent === "1";
+    });
     assert.equal(await page.locator("#packet-rows tr").count(), 1);
     assert.match(await page.locator("#display-filter").inputValue(), /ip.addr/);
     await page.screenshot({ path: "artifacts/filter-builder-desktop.png", fullPage: true });
@@ -26,7 +29,10 @@ const assert = require("node:assert/strict");
     await page.locator("#close-builder").click();
     await page.locator("#display-filter").fill("tcp.port == 443");
     await page.locator("#filter-form button[type=submit]").click();
-    await page.locator("#packet-rows tr").first().waitFor();
+    await page.waitForFunction(() => {
+      const rows = document.querySelectorAll("#packet-rows tr");
+      return rows.length === 1 && rows[0].querySelector("td")?.textContent === "2";
+    });
     assert.equal(await page.locator("#packet-rows tr").count(), 1);
 
     await page.setViewportSize({ width: 390, height: 844 });
