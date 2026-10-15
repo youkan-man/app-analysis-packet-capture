@@ -77,7 +77,7 @@
             rule.value.length > MAX_TEXT || typeof rule.case_sensitive !== "boolean") return false;
       }
     }
-    return total <= 32 && JSON.stringify({ groups }).length <= 4096;
+    return total <= 32 && new TextEncoder().encode(JSON.stringify({ groups })).length <= 4096;
   }
 
   class PacketInfoControls {
@@ -136,7 +136,7 @@
     getQuery() {
       return this.groups.length ? JSON.stringify({ groups: this.groups }) : "";
     }
-    setGroups(groups) {
+    setGroups(groups, notify = true) {
       let cloned;
       try { cloned = JSON.parse(JSON.stringify(groups)); } catch { cloned = null; }
       if (!validGroups(cloned)) {
@@ -147,7 +147,7 @@
       this.hideMenu();
       this.hideToolbar();
       this.renderChips();
-      this.onInfoChange();
+      if (notify) this.onInfoChange();
       return true;
     }
     update(rawText, operator = "contains", join = "replace", caseSensitive) {
@@ -285,10 +285,12 @@
           this.menu.append(element("div", "context-divider"));
           continue;
         }
-        this.menu.append(action(item.label, () => {
+        const control = action(item.label, () => {
           this.hideMenu();
           item.run();
-        }, "context-action"));
+        }, "context-action");
+        control.setAttribute("role", "menuitem");
+        this.menu.append(control);
       }
       fitPopup(this.menu, x, y);
       const first = this.menu.querySelector("button");
