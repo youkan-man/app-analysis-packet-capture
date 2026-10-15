@@ -493,11 +493,11 @@
     select.replaceChildren();
     const empty = dom("option", "", "保存済みフィルター");
     empty.value = ""; select.append(empty);
-    for (const item of state.saved) {
+    state.saved.forEach((item, index) => {
       const option = dom("option", "", item.name);
-      option.value = item.expression;
+      option.value = String(index + 1);
       select.append(option);
-    }
+    });
   }
   function wireEvents() {
     $("open-file").addEventListener("click", () => $("file-input").click());
@@ -526,7 +526,12 @@
     });
     $("apply-builder").addEventListener("click", applyBuilder);
     $("saved-filters").addEventListener("change", event => {
-      if (event.target.value) applyExpression(event.target.value);
+      const item = state.saved[Number(event.target.value) - 1];
+      if (!item) return;
+      // Old presets with only a Wireshark expression remain supported.
+      if (!infoUi.setGroups(item.infoGroups || [], false)) return;
+      try { localStorage.setItem(storage.info, JSON.stringify(infoUi.getGroups())); } catch {}
+      applyExpression(item.expression || "");
     });
     $("delete-saved-filter").addEventListener("click", () => {
       const select = $("saved-filters");
@@ -544,12 +549,16 @@
     });
     $("save-filter").addEventListener("click", () => {
       const expression = $("display-filter").value.trim();
-      if (!expression) { status("保存する式を入力してください", "error"); return; }
-      const name = prompt("フィルター名", expression);
+      const infoGroups = infoUi.getGroups();
+      if (!expression && !infoGroups.length) {
+        status("保存するフィルター条件を入力してください", "error");
+        return;
+      }
+      const name = prompt("フィルター名", expression || infoGroups[0][0].value);
       if (name === null) return;
       const label = name.trim().slice(0, 60);
       if (!label) return;
-      state.saved = [{ name: label, expression }, ...state.saved.filter(x => x.name !== label)].slice(0, 30);
+      state.saved = [{ name: label, expression, infoGroups }, ...state.saved.filter(x => x.name !== label)].slice(0, 30);
       localStorage.setItem(storage.saved, JSON.stringify(state.saved));
       renderSaved(); status("フィルターを保存しました");
     });
@@ -558,7 +567,9 @@
         event.preventDefault(); $("file-input").click();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault(); $("display-filter").focus(); $("display-filter").select();
+        event.preventDefault();
+        const field = event.shiftKey ? $("info-query") : $("display-filter");
+        field.focus(); field.select();
       }
       if (event.key === "Escape" && !$("filter-builder").hidden) toggleBuilder(false);
     });
