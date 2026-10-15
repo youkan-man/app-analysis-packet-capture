@@ -129,7 +129,7 @@ def test_info_filters_apply_before_pagination_and_combine_with_tshark(client):
     assert both.json()["total"] == 1
 
     uppercase = client.get(base, params={"info": info([{
-        "operator": "contains", "value": "query", "case_sensitive": True
+        "operator": "contains", "value": "QUERY", "case_sensitive": True
     }])})
     assert uppercase.json()["total"] == 0
 
