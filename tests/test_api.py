@@ -83,3 +83,57 @@ def test_compiler_endpoint(client):
     assert reply.json()["expression"] == "(ip.addr == 192.0.2.10)"
     bad = client.post("/api/filters/compile", json={"node": {"type": "rule", "field": "&&"}})
     assert bad.status_code == 422
+
+
+def test_info_query_json_validation(client):
+    upload_result = upload(client, pcap()).json()
+    base = "/api/captures/" + upload_result["id"] + "/packets"
+    assert client.get(base, params={"info": "broken{"}).status_code == 422
+    assert client.get(base, params={"info": '{"groups":[[]]}'}).status_code == 422
+    assert client.get(base, params={"info": '{"groups":[[{"operator":"contains","value":"x","case_sensitive":"true"}]]}'}).status_code == 422
+
+
+@pytest.mark.skipif(shutil.which("tshark") is None, reason="TShark is not installed")
+def test_info_filters_apply_before_pagination_and_combine_with_tshark(client):
+    import json
+    capture = upload(client, pcap()).json()
+    base = "/api/captures/" + capture["id"] + "/packets"
+
+    def info(*groups):
+        return json.dumps({"groups": list(groups)})
+
+    include = {"operator": "contains", "value": "query", "case_sensitive": False}
+    exclude = {"operator": "not_contains", "value": "query", "case_sensitive": False}
+    selected = client.get(base, params={"info": info([include]), "limit": 1})
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["total"] == 1
+    assert selected.json()["packets"][0]["number"] == 1
+    assert selected.json()["packets"][0]["fields"]["ip.src"] == "192.0.2.10"
+
+    other = client.get(base, params={"info": info([exclude])})
+    assert other.json()["total"] == 1
+    assert other.json()["packets"][0]["number"] == 2
+    assert other.json()["packets"][0]["fields"]["tcp.dstport"] == "443"
+
+    union = client.get(base, params={"info": info([include], [exclude])})
+    assert union.json()["total"] == 2
+    assert union.json()["packets"][1]["number"] == 2
+
+    combined = client.get(base, params={"filter": "tcp", "info": info([include])})
+    assert combined.status_code == 200
+    assert combined.json()["total"] == 0
+
+    both = client.get(base, params={"info": info([include, {
+        "operator": "contains", "value": "example.com", "case_sensitive": False
+    }])})
+    assert both.json()["total"] == 1
+
+    uppercase = client.get(base, params={"info": info([{
+        "operator": "contains", "value": "query", "case_sensitive": True
+    }])})
+    assert uppercase.json()["total"] == 0
+
+    # The Info clause must match all packets before slicing the requested page.
+    no_second = client.get(base, params={"info": info([include]), "page": 2, "limit": 1})
+    assert no_second.json()["packets"] == []
+    assert no_second.json()["total"] == 1
