@@ -54,6 +54,7 @@ jobs:
         run: |
           python -m tests.sample_capture artifacts/test.pcap
           python -m tests.inspection_capture artifacts/inspection.pcap
+          node tests/layout_probe.js
           node tests/browser_smoke.js
           node tests/browser_inspection.js
       - name: Container logs and cleanup
