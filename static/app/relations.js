@@ -4,7 +4,7 @@
   const A=window.PacketApp,{$,el,button,state}=A;
   let controller=null,data=null,incoming=new Map();
   const endpoint=e=>e.port?`${e.address.includes(':')?'['+e.address+']':e.address}:${e.port}`:e.address;
-  function close(){controller?.abort();controller=null;$('relations-panel').hidden=true;
+  function close(){A.loading.clear('relations');controller?.abort();controller=null;$('relations-panel').hidden=true;
     $('workspace').classList.remove('relations-open');$('open-relations').setAttribute('aria-expanded','false');A.layout?.refresh();}
   async function open(number=state.selected){
     if(!number||!state.active)return;
@@ -13,14 +13,16 @@
     A.filters.toggleFilter(false);$('relations-panel').hidden=false;$('workspace').classList.add('relations-open');
     $('open-relations').setAttribute('aria-expanded','true');
     $('relations-content').replaceChildren(el('div','empty-detail',`#${number} の通信を解析中...`));A.layout?.refresh();
+    const loading=A.loading.begin('relations','送受信の関係を解析中…',`基準 #${number}`);
     try{
-      const result=await A.local.query(capture, 'relations', {number}, request.signal);
+      const result=await A.local.query(capture, 'relations', {number}, request.signal, loading.progress);
       if(controller!==request||state.active?.id!==capture)return;
       data=result;
       for(const packet of data.packets)if(!state.packetCache.has(packet.number))state.packetCache.set(packet.number,{
         ...packet,source:packet.source.address,destination:packet.destination.address,length:'',fields:{}});
       render();
-    }catch(error){if(!request.signal.aborted)$('relations-content').replaceChildren(el('div','empty-detail',error.message));}
+    }catch(error){if(!request.signal.aborted){loading.fail(error.message);$('relations-content').replaceChildren(el('div','empty-detail',error.message));}}
+    finally{loading.end();}
   }
   function record(packet,relation=null){
     const row=el('div','relation-record');row.dataset.number=String(packet.number);

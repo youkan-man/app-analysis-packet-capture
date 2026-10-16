@@ -40,13 +40,15 @@ async function list() {
   const items = await transaction(['captures'],'readonly',tx=>tx.objectStore('captures').getAll());
   return {items:items.sort((a,b)=>b.added.localeCompare(a.added))};
 }
-async function store(file) {
+async function store(file,report) {
+  report('validating');
   if (!(file instanceof Blob)) throw new Error('ファイルがありません');
   const magic = Array.from(new Uint8Array(await file.slice(0,4).arrayBuffer()),n=>n.toString(16).padStart(2,'0')).join('');
   const formats = {d4c3b2a1:'pcap',a1b2c3d4:'pcap','4d3cb2a1':'pcap',a1b23c4d:'pcap','0a0d0d0a':'pcapng'};
   if (!formats[magic]) throw new Error('PCAP / PCAPNG ファイルではありません');
   const record = {id:random(16),filename:(file.name || 'capture.pcap').replaceAll('\\','/').split('/').pop(),
     size:file.size,format:formats[magic],added:new Date().toISOString()};
+  report('saving');
   await transaction(['captures','files'],'readwrite',tx=>{
     tx.objectStore('captures').add(record); tx.objectStore('files').add(file,record.id);
   });
@@ -64,18 +66,20 @@ async function remote(url,options={}) {
   return data;
 }
 function authorize(slot) {return {Authorization:'Bearer '+slot.token};}
+function stage(slot,phase) {slot.phase=phase;slot.listeners.forEach(report=>report(phase));}
 function instance(localId) {
   let slot=slots.get(localId);
   if (slot) return slot;
-  slot={token:random(32),controller:new AbortController(),id:null,closed:false};
+  slot={token:random(32),controller:new AbortController(),id:null,closed:false,phase:'reading',listeners:new Set()};
   slots.set(localId,slot);
   slot.ready=(async()=>{
     const file=await transaction(['files'],'readonly',tx=>tx.objectStore('files').get(localId));
     if (!file) throw new Error('ローカルファイルが見つかりません。もう一度開いてください');
     if (slot.closed) throw aborted();
+    stage(slot,'uploading');
     const result=await remote('/api/instances',{method:'POST',headers:{...authorize(slot),'Content-Type':'application/octet-stream'},
       body:file,signal:slot.controller.signal});
-    slot.id=result.id;
+    slot.id=result.id; stage(slot,'submitting');
     if (slot.closed) {await release(slot); throw aborted();}
     return slot;
   })().catch(error=>{if(slots.get(localId)===slot)slots.delete(localId);throw error;});
@@ -105,34 +109,39 @@ function pause(ms,signal) {
     signal.addEventListener('abort',stop,{once:true});
   });
 }
-async function query(localId,operation,payload,signal) {
+async function query(localId,operation,payload,signal,report) {
   for(let attempt=0;attempt<2;attempt++) {
     if(signal.aborted)throw aborted();
     const slot=instance(localId);
+    slot.listeners.add(report); report(slot.phase);
     let jobURL;
     try {
       await slot.ready;
       if(signal.aborted||slot.closed)throw aborted();
+      slot.listeners.delete(report); report('submitting');
       const base='/api/instances/'+slot.id;
       const job=await remote(base+'/jobs',{method:'POST',headers:{...authorize(slot),'Content-Type':'application/json'},
         body:JSON.stringify({operation,payload}),signal});
-      jobURL=base+'/jobs/'+job.id;
+      jobURL=base+'/jobs/'+job.id; report('queued');
       let delay=80;
       while(true) {
         const state=await remote(jobURL,{headers:authorize(slot),signal});
         if(state.state==='done')return state.result;
         if(state.state==='error')throw new Error(state.error);
+        report(state.state==='queued'?'queued':'running');
         await pause(delay,signal);delay=Math.min(500,delay*1.3);
       }
     } catch(error) {
       if(attempt===0&&!signal.aborted&&(slot.reason==='expired'||
         (error.status===404&&!slot.closed&&slots.get(localId)===slot))) {
+        report('reconnecting');
         // Concurrent callers share the replacement; an explicit close never reopens.
         if(slots.get(localId)===slot)await close(localId,'expired');
         continue;
       }
       throw error;
     } finally {
+      slot.listeners.delete(report);
       if(jobURL)void cleanup(jobURL,slot);
     }
   }
@@ -143,17 +152,19 @@ self.onmessage=async event=>{
   if(method==='cancel'){requests.get(id)?.abort();return;}
   if(method==='closeAll'){await Promise.all([...slots.keys()].map(close));return;}
   const controller=new AbortController();requests.set(id,controller);
+  let lastPhase='';
+  const report=phase=>{if(!controller.signal.aborted&&phase!==lastPhase){lastPhase=phase;self.postMessage({id,phase});}};
   try {
     let result;
     if(method==='list') result=await list();
-    else if(method==='import') result=await store(args.file);
+    else if(method==='import') result=await store(args.file,report);
     else if(method==='close') result=await close(args.id);
     else if(method==='remove') {
       await close(args.id);
       await transaction(['captures','files'],'readwrite',tx=>{
         tx.objectStore('captures').delete(args.id);tx.objectStore('files').delete(args.id);
       });
-    } else if(method==='query') result=await query(args.id,args.operation,args.payload,controller.signal);
+    } else if(method==='query') result=await query(args.id,args.operation,args.payload,controller.signal,report);
     else throw new Error('未対応の操作です');
     if(!controller.signal.aborted)self.postMessage({id,result});
   } catch(error) {

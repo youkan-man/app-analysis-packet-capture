@@ -48,8 +48,12 @@
     closeCompare();
     status("ピンをすべて解除しました");
   }
+  let compareController = null;
   async function openCompare() {
     if (state.pins.length < 2 || !state.active) return;
+    compareController?.abort();
+    const controller = new AbortController(); compareController = controller;
+    const loading = A.loading.begin("compare", "比較データを読み込み中…");
     const captureId = state.active.id;
     const targets = state.pins.map(pin => ({...pin}));
     $("compare-panel").hidden = false;
@@ -58,20 +62,23 @@
     try {
       await Promise.all(targets.map(async pin => {
         if (!state.compareDetails.has(pin.number)) {
-          const detail = await A.local.query(captureId, "detail", {number:pin.number});
+          const detail = await A.local.query(captureId, "detail", {number:pin.number}, controller.signal, loading.progress);
           if (state.active?.id === captureId) state.compareDetails.set(pin.number, detail);
         }
       }));
-      if (state.active?.id !== captureId) return;
+      if (state.active?.id !== captureId || controller.signal.aborted) return;
       renderComparison();
       $("compare-progress").textContent = `${state.pins.length}件`;
     } catch (error) {
-      if (state.active?.id !== captureId) return;
+      if (state.active?.id !== captureId || controller.signal.aborted) return;
+      loading.fail(error.message);
       $("compare-progress").textContent = error.message;
       status("比較: " + error.message, "error");
-    }
+    } finally { loading.end(); }
   }
   function closeCompare() {
+    compareController?.abort(); compareController = null;
+    A.loading.clear("compare");
     $("compare-panel").hidden = true;
   }
   function flattenLayers(layers) {

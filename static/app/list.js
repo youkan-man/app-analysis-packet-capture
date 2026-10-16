@@ -98,17 +98,24 @@
     state.detailController?.abort();
     const controller = new AbortController(); state.detailController = controller;
     const captureId = state.active.id;
+    state.selectedDetail = null;
     A.viewer.clearDetail();
+    const loading = A.loading.begin("detail", "パケット詳細を読み込み中…", `#${number}`);
     $("selected-number").textContent = "#" + number;
     $("packet-details").replaceChildren(el("div", "empty-detail", "解析中..."));
     try {
-      const detail = await A.local.query(captureId, "detail", {number}, controller.signal);
+      const detail = await A.local.query(captureId, "detail", {number}, controller.signal, loading.progress);
       if (controller !== state.detailController || state.active?.id !== captureId) return;
       state.selectedDetail = detail; state.compareDetails.set(number, detail);
       A.viewer.renderDetails(detail.layers); A.viewer.renderHex(detail.hex); A.pins.renderPins();
+      A.status(`#${number} の詳細を表示`);
     } catch (error) {
-      if (!controller.signal.aborted) $("packet-details").replaceChildren(el("div", "empty-detail", error.message));
-    }
+      if (!controller.signal.aborted) {
+        loading.fail(error.message);
+        $("packet-details").replaceChildren(el("div", "empty-detail", error.message));
+        A.status(error.message, "error");
+      }
+    } finally { loading.end(); }
   }
   function scrollToPacket(number) {
     const index = state.packets.findIndex(packet => packet.number === number);
