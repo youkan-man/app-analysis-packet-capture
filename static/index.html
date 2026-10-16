@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app/core.js" defer></script>
   <script src="/static/app/clipboard.js" defer></script>
+  <script src="/static/app/storage.js" defer></script>
   <script src="/static/app/sources.js" defer></script>
   <script src="/static/app/list.js" defer></script>
   <script src="/static/app/detail.js" defer></script>
@@ -26,6 +27,7 @@
     <div class="header-tools">
       <div class="tool-group">
         <button type="button" class="button" id="open-file">ファイルを開く</button>
+        <button class="button button-quiet" id="close-capture" type="button" disabled>閉じる</button>
       </div>
       <input type="file" id="file-input" accept=".pcap,.pcapng,.cap,application/vnd.tcpdump.pcap" hidden>
       <div class="tool-group">
@@ -39,7 +41,7 @@
   </header>
   <div class="workspace" id="workspace">
     <aside class="source-panel" aria-label="キャプチャファイル">
-      <div class="panel-head"><span>ファイル</span><span id="capture-count" class="count">0</span></div>
+      <div class="panel-head"><span>ローカルファイル</span><span id="capture-count" class="count">0</span></div>
       <div id="capture-list" class="capture-list"></div>
       <button type="button" class="drop-target" id="drop-target">＋ ファイル追加</button>
       <div class="source-meta" id="source-info">ファイルを選択してください</div>

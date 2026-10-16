@@ -8,14 +8,13 @@
     for (const file of files) {
       if (!file) continue;
       status(file.name + " を取り込み中...", "busy");
-      const form = new FormData();
-      form.append("file", file);
       try {
-        const capture = await api("/api/captures", { method: "POST", body: form });
-        state.active = null;
+        const capture = await A.local.import(file);
+        // The local transaction completes before any analysis upload is started.
+        A.viewer.resetPacketView();
         localStorage.setItem(A.storage.current, capture.id);
         await A.viewer.loadCaptures();
-        status(file.name + " を取り込みました");
+        if (!$("status-dot").classList.contains("error")) status(file.name + " · ローカル保存済み");
       } catch (error) { status(file.name + ": " + error.message, "error"); }
     }
     $("file-input").value = "";
@@ -33,7 +32,8 @@
     $("open-file").addEventListener("click", () => $("file-input").click());
     $("drop-target").addEventListener("click", () => $("file-input").click());
     $("file-input").addEventListener("change", event => uploadFiles(Array.from(event.target.files)));
-    $("refresh").addEventListener("click", A.viewer.loadCaptures);
+    $("refresh").addEventListener("click", () => {A.viewer.loadCaptures(); if (state.active) A.viewer.loadPackets({keepSelection:true});});
+    $("close-capture").addEventListener("click", () => {A.viewer.resetPacketView(); status("解析を終了しました。原本はローカルに保存されています");});
     $("toggle-filter").addEventListener("click", () => A.filters.toggleFilter());
     $("close-filter").addEventListener("click", () => A.filters.toggleFilter(false));
     $("add-condition").addEventListener("click", () => addEditableRule(0));
