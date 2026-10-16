@@ -8,14 +8,17 @@
     for (const file of files) {
       if (!file) continue;
       status(file.name + " を取り込み中...", "busy");
+      const loading = A.loading.begin("packets", "ファイルを読み込み中…", file.name);
       try {
-        const capture = await A.local.import(file);
+        const capture = await A.local.import(file, loading.progress);
+        loading.end();
         // The local transaction completes before any analysis upload is started.
         A.viewer.resetPacketView();
         localStorage.setItem(A.storage.current, capture.id);
         await A.viewer.loadCaptures();
         if (!$("status-dot").classList.contains("error")) status(file.name + " · ローカル保存済み");
-      } catch (error) { status(file.name + ": " + error.message, "error"); }
+      } catch (error) { loading.fail(error.message); status(file.name + ": " + error.message, "error"); }
+      finally { loading.end(); }
     }
     $("file-input").value = "";
   }

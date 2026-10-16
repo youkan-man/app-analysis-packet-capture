@@ -289,3 +289,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .statusbar > span:last-child { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Loading is local to the data being replaced, never a whole-window modal. */
+.loading-surface {position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
+.loading-mask {position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px;background:rgba(255,255,255,.94);color:var(--ink);text-align:center;overflow:auto}
+.loading-spinner {width:22px;height:22px;flex:none;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite}
+.loading-message {font-weight:600;overflow-wrap:anywhere}
+.loading-context {max-width:100%;overflow-wrap:anywhere}
+.loading-elapsed {color:var(--muted)}
+.loading-surface[data-loading-state=error] .loading-message {color:var(--danger)}
+.loading-surface[data-loading-state=error] .loading-spinner {display:none}
+.has-pending #status-message {display:none}
+#loading-summary {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.has-pending .status-dot {width:11px;height:11px;background:transparent;border:2px solid var(--line);border-top-color:var(--accent);animation:loading-spin .8s linear infinite}
+@keyframes loading-spin {to {transform:rotate(360deg)}}
+@media(max-width:720px) {.loading-mask {gap:4px;padding:6px;justify-content:safe center}.loading-spinner {width:17px;height:17px}.loading-elapsed:empty {display:none}}
+@media(prefers-reduced-motion:reduce) {.loading-spinner,.has-pending .status-dot {animation:none}}

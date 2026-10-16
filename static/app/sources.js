@@ -31,6 +31,7 @@
     if (!state.captures.length) container.append(el("div", "empty-detail", "ファイルはありません"));
   }
   function resetPacketView() {
+    A.loading.clear("packets", "detail");
     state.listController?.abort(); state.detailController?.abort(); A.relations?.close();
     if (state.active) A.local.close(state.active.id);
     $("close-capture").disabled = true;
@@ -43,16 +44,20 @@
     renderAll(); A.viewer.clearDetail(); A.pins.closeCompare(); renderSources();
   }
   async function loadCaptures() {
+    const loading = A.loading.begin("library", "ローカルファイル一覧を読み込み中…");
     try {
       const result = await A.local.list(); state.captures = result.items;
+      loading.end();
       const current = state.active?.id || localStorage.getItem(storage.current);
       const capture = state.captures.find(item => item.id === current) || state.captures[0];
       if (capture && capture.id !== state.active?.id) await openCapture(capture);
       if (!capture) resetPacketView();
       renderSources();
-    } catch (error) { status("ファイル一覧: " + error.message, "error"); }
+    } catch (error) { loading.fail(error.message); status("ファイル一覧: " + error.message, "error"); }
+    finally { loading.end(); }
   }
   async function openCapture(capture) {
+    A.loading.clear("detail");
     state.listController?.abort(); state.detailController?.abort(); A.relations?.close();
     if (state.active && state.active.id !== capture.id) A.local.close(state.active.id);
     $("close-capture").disabled = false;
@@ -71,12 +76,14 @@
     state.listController?.abort(); state.detailController?.abort();
     const controller = new AbortController(); state.listController = controller;
     const captureId = state.active.id;
+    A.loading.clear("detail");
+    const loading = A.loading.begin("packets", hasFilters() ? "フィルターを適用中…" : "パケットを解析中…", state.active.filename);
     status("パケットを解析中...", "busy");
     try {
       const result = await A.local.query(captureId, 'packets', {
         raw: state.view.raw.trim(), view: state.view.groups.length ? JSON.stringify({groups: state.view.groups}) : '',
         context: hasFilters() ? state.view.context : 0,
-      }, controller.signal);
+      }, controller.signal, loading.progress);
       if (controller !== state.listController || state.active?.id !== captureId) return;
       state.packets = result.packets; state.total = result.total; state.matched = result.matched; state.displayed = result.displayed;
       for (const packet of state.packets) state.packetCache.set(packet.number, packet);
@@ -84,6 +91,7 @@
       if (!keep) state.selected = state.packets.find(packet => packet.is_match)?.number ?? state.packets[0]?.number ?? null;
       $("packet-scroll").scrollTop = 0;
       renderAll();
+      loading.end();
       if (state.selected) await A.viewer.selectPacket(state.selected, { scroll: false }); else A.viewer.clearDetail();
       if (controller !== state.listController || controller.signal.aborted) return;
       const contextText = result.displayed > result.matched ? `（前後 ${result.displayed - result.matched}件を透過）` : "";
@@ -92,8 +100,9 @@
       if (controller.signal.aborted) return;
       state.packets = []; state.total = state.matched = state.displayed = 0; state.selected = null;
       renderAll(); A.viewer.clearDetail();
+      loading.fail(error.message);
       status("フィルター/解析: " + error.message, "error"); $("filter-error").textContent = error.message;
-    }
+    } finally { loading.end(); }
   }
   function renderAll() {
     A.filters.renderActiveFilters(); A.pins.renderPins(); A.viewer.renderVirtualRows(true); renderCounts();
