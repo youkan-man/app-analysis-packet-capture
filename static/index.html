@@ -3,11 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
   <title>Packet Capture Workbench</title>
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/review-adjustments.css">
-  <link rel="stylesheet" href="/static/inspection.css">
   <script src="/static/app/core.js" defer></script>
   <script src="/static/app/clipboard.js" defer></script>
   <script src="/static/app/sources.js" defer></script>
@@ -23,14 +21,20 @@
 </head>
 <body>
   <header class="app-header">
-    <div class="app-brand"><span class="brand-mark" aria-hidden="true">▧</span><strong>Packet Capture</strong></div>
+    <div class="app-brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M8 3v18"/></svg></span><strong>Packet Capture</strong></div>
     <div class="current-capture" id="current-file">キャプチャを選択</div>
     <div class="header-tools">
-      <button type="button" class="button button-primary" id="open-file">＋ 開く</button>
+      <div class="tool-group">
+        <button type="button" class="button" id="open-file">ファイルを開く</button>
+      </div>
       <input type="file" id="file-input" accept=".pcap,.pcapng,.cap,application/vnd.tcpdump.pcap" hidden>
+      <div class="tool-group">
       <button type="button" class="button" id="toggle-filter" aria-controls="filter-drawer" aria-expanded="false">フィルター <span id="filter-count" class="tool-count">0</span></button>
       <button type="button" class="button" id="open-compare" disabled>比較 <span id="pin-count" class="tool-count">0</span></button>
+      </div>
+      <div class="tool-group">
       <button type="button" class="icon-button" id="refresh" title="再読み込み" aria-label="再読み込み">↻</button>
+      </div>
     </div>
   </header>
   <div class="workspace" id="workspace">

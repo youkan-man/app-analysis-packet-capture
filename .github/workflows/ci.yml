@@ -57,6 +57,8 @@ jobs:
           node tests/layout_probe.js
           node tests/browser_smoke.js
           node tests/browser_inspection.js
+          python -m tests.formal_capture artifacts/lab-inspection.pcap
+          node tests/browser_formal.js
       - name: Container logs and cleanup
         if: always()
         run: |
