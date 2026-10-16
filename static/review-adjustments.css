@@ -1,9 +1,0 @@
-/* Keep context rows legible and physical row height equal to the virtual index. */
-.packet-table tbody tr.context-row {opacity:.5}
-.packet-table tbody tr.context-row:hover,.packet-table tbody tr.context-row.selected {opacity:.88}
-body .packet-table td {padding:1px 7px}
-.packet-table .virtual-spacer td {padding:0;border:0}
-/* Expand only across a divider, never along its ends into another divider. */
-.splitter[data-axis="x"]::after {inset:0 -2px}
-.splitter[data-axis="y"]::after {inset:-2px 0}
-#split-packets {z-index:8}
