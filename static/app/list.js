@@ -102,7 +102,7 @@
     $("selected-number").textContent = "#" + number;
     $("packet-details").replaceChildren(el("div", "empty-detail", "解析中..."));
     try {
-      const detail = await api(`/api/captures/${captureId}/packets/${number}`, { signal: controller.signal });
+      const detail = await A.local.query(captureId, "detail", {number}, controller.signal);
       if (controller !== state.detailController || state.active?.id !== captureId) return;
       state.selectedDetail = detail; state.compareDetails.set(number, detail);
       A.viewer.renderDetails(detail.layers); A.viewer.renderHex(detail.hex); A.pins.renderPins();

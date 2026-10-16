@@ -1,49 +1,58 @@
 # Packet Capture Workbench
 
-Docker-hosted PCAP/PCAPNG inspection using Wireshark TShark. Packet contents remain the main workspace; filters, comparison and communication analysis open alongside the data.
+Docker-hosted Wireshark/TShark inspection with **browser-owned capture storage** and **private, transient background analysis instances**. The formal light UI, continuous list, screen-driven filters, pins, comparison, linked bytes and communication hierarchy remain available.
 
 ## Run / update
 
 ```sh
+git pull --ff-only
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8080`. After pulling a new revision, run the same command to rebuild. Captures remain in the `capture_data` volume. Processing is offline; no live network-interface privileges are required.
+Open `http://127.0.0.1:8080`. Compose binds to loopback by default. For LAN access use a trusted HTTPS reverse proxy: plain HTTP does not protect captures or capability headers from network observers.
 
-## Inspect and copy
+## Ownership and processing
 
-The continuous packet list uses virtualized rows without page controls. Select a record to inspect its protocol tree and hex/ASCII bytes.
+1. Opening a file saves the original Blob and its metadata atomically in this browser profile's **IndexedDB**. Small view settings, pins and saved filters remain in localStorage. A storage failure stops the operation; it never falls back to a shared server store.
+2. A dedicated browser Web Worker reads that local file and uploads its bytes, without its filename, to create a private analysis instance. Each instance has its own random capability and dedicated Python process/TShark children.
+3. Packet, field, filter, comparison and relationship requests use asynchronous jobs on that same instance. HTTP accepts jobs with `202` and the browser worker polls results without blocking the UI. Results and process caches are temporary, not a shared persistent capture database.
+4. **閉じる** ends the active analysis and retains the local original. Switching files releases the old instance. Deleting a file deletes this browser's original and its local view/pin state. It does not affect another browser.
+5. Refresh, idle expiry or a server restart creates a new private instance from the browser's stored original. Page exit attempts cleanup; leases also expire after 900 seconds without requests. Closing/expiry stops the process group including TShark and removes the instance directory.
 
-- Select a protocol field to highlight the corresponding bytes in both hex and ASCII. Click or drag bytes to select the most specific enclosing field; its ancestors open automatically. Shift-click and keyboard arrows extend the byte selection.
-- **バイト列をコピー** copies the selection, or all captured bytes when nothing is selected. Output is space-separated hexadecimal text only: no offsets or ASCII column. The byte context menu also provides compact hexadecimal. Ctrl/Cmd+C and Ctrl/Cmd+A operate inside the byte pane.
-- Protocol-element context menus distinguish **値をコピー** (decoded value), **表示値をコピー** (the full rendered field description), and **生値（16進）をコピー** (TShark's raw field representation where available).
-- Repeated fields keep separate occurrence IDs. Byte offsets are linked only when TShark's unmasked raw field bytes agree with the captured-frame slice. Generated fields, unavailable bytes and unmapped reassembled/transformed data remain visible and copyable but are not assigned invented byte ranges.
+There is no server capture-list endpoint and no identifier-only access to results. Every instance and job operation checks that instance's capability. Capabilities are generated in the Web Worker, sent in Authorization headers, and never written to localStorage/IndexedDB, URL parameters, cookies or logs. Temporary data lives under `/tmp`, mounted as tmpfs by Compose; `/data` and the old shared capture volume are not used.
 
-## Layout
+**Browser profile is the storage boundary, not a user account.** Different devices, profiles and private contexts do not share data merely because they visit the same URL. Tabs in the same profile and origin share IndexedDB; people sharing that profile can access its files. Browser-data clearing/eviction removes locally stored data, so keep an external original. Host administrators can access transient analysis data; per-instance processes are not a security sandbox against a compromised TShark decoder.
 
-Default UI font is 12 px, with 11 px data text. The **文字** selector supports 10–16 px. Drag the dividers between files/data, list/inspectors, protocol details/bytes, and the right drawer. Comparison height and table-column widths are adjustable too. Focus a divider and use arrow keys (Shift for a larger step), or Home/double-click to reset. Geometry and font choice are saved in the current browser. On narrow screens the inspector divider becomes horizontal.
+## Existing deployments
 
-## Screen-driven filters, pins and comparison
+Old server-volume files are **not** automatically imported: the former shared catalog does not establish which browser owns a file. This update detaches the old `capture_data` volume but does not delete it. Keep it for manual recovery and reopen each user's originals in their own browser. Do not use `docker compose down -v` to update. This deliberately removes the former shared `/api/captures` API; old direct API clients must adopt private instances/jobs.
 
-Every displayed packet column uses the same filter mechanism; Info has no dedicated search feature. Right-click a value to include, exclude or combine it with AND/OR. Select part of a text value and right-click to filter by that substring; selecting text alone never opens a popup or changes a filter. Protocol-tree fields can also become typed rules; Wireshark syntax is not needed for these operations. The optional raw expression remains under an advanced disclosure.
+## UI
 
-The filter context menu offers translucent records before and after each match. These rows do not count as matches. Double-click a packet row to pin it. Double-clicking an already pinned row leaves it pinned without adding duplicates; use the pin button or context menu to unpin. Pins remain available across filtering and are saved per capture in the browser. Two or more pins can be compared field-by-field, with a differences-only option.
+The file list shows browser-local captures. The data surface remains the main view; status/error messages and a compact close action describe actual operations without adding setup screens. Right-click visible values or selected text to filter; selection alone opens no popup. Double-click records to pin them. Inspect/compare pins, resize panes and columns, and adjust font size as before.
 
-## Send/receive hierarchy
+The byte pane copies only hexadecimal bytes, excluding offsets/ASCII. Field selections and byte ranges are linked; generated or unmapped data is not assigned fictitious offsets. Field context menus distinguish decoded values, display values, and raw hexadecimal. Communication relationships use TShark's explicit request/response/ACK references, not inferred causality from timing alone.
 
-Select **通信階層** or right-click a record and choose **送受信の階層を解析**. The selected record becomes the fixed analysis anchor. The panel shows its protocol stack, endpoints, TCP/UDP stream, direction counts, and related records. Clicking a record inspects its contents without replacing the anchor or clearing the active filter.
+## Runtime and API
 
-Relations come from two-pass TShark frame references: DNS/HTTP/ICMP request–response links, TCP acknowledgements, duplicate ACKs and reassembly references supported by the installed version. Labels expose their source field names and time differences. Reverse-direction traffic alone is not classified as an application response, and TCP ACKs are not HTTP/DNS responses. Encrypted or unsupported application protocols may show stream/direction only. Missing relationships are marked as unconfirmed, not guessed. This is capture-local evidence, not cross-host causal tracing or an inferred service call graph.
+| Boundary | Owner |
+| --- | --- |
+| `static/app/storage.worker.js` | IndexedDB transactions, opaque runtime handles, uploads, asynchronous job polling |
+| `static/app/storage.js` | UI/worker RPC and cancellation |
+| `app/main.py` | HTTP validation and capability-only instance/job endpoints |
+| `app/instances.py` | Instance lifetime, process/queue ownership, job results and expiry |
+| `app/analysis_worker.py` | One file's TShark calls and bounded process-local caches |
+| `app/engine.py`, `filters.py`, `inspection.py`, `relationships.py` | Existing dissection and pure projections |
 
-## Security / limits
+Create an instance with `POST /api/instances`, an octet-stream request body, and `Authorization: Bearer <64 lowercase random hex characters>`. The returned ID is not an access key. Submit `{operation: "packets"|"detail"|"relations", payload: {...}}` to `POST /api/instances/{id}/jobs`, poll its job URL, then delete the result. DELETE on an instance stops its process and deletes transient state. Every request needs its capability; IDs from another instance cannot be substituted.
 
-There is no built-in multi-user authentication. Keep the default loopback port binding or use an authenticated reverse proxy. Anyone with access can read/remove captures; capture payloads can be sensitive. The container runs nonroot with capabilities dropped.
+Cancelled queued jobs are removed. Work already executing may finish with its result discarded; closing the instance terminates it. Uploads interrupted before completion are removed. Abrupt browser exit is bounded by idle expiry; a capability lost with an upload response can only leave a transient lease, never a shared library item.
 
-Upload limit defaults to 256 MiB. TShark result limits are 32 MiB for rows and 8 MiB for individual inspections; visual filters allow 8 groups / 32 rules, raw expressions 2048 characters, and neighbour context at most 50 records. Large captures are reprocessed for queries; this is not a disk-indexed multi-gigabyte capture engine. Analysis depends on the image's installed TShark dissectors.
+`ANALYSIS_IDLE_SECONDS` defaults to 900; `MAX_ANALYSIS_INSTANCES` defaults to 32; `ANALYSIS_RUNTIME_DIR` defaults to `/tmp`; `MAX_UPLOAD_BYTES` defaults to 256 MiB. Run one Uvicorn HTTP process as the Docker command does: instances belong to that process, not a shared multi-worker registry. The server is not an authenticated user/account product and must be placed behind access control before public exposure. Session capabilities isolate operations, not admission or denial-of-service risk. Existing TShark output limits still apply.
 
 ## Verification
 
-GitHub Actions runs Python schema/unit tests and real TShark capture integration, builds the Docker image, and drives that actual nonroot container with Chromium. The browser journeys check generic filters, pins/comparison, clipboard contents, byte/field selection, resize persistence, fonts and DNS/HTTP/ACK hierarchy. Synthetic fixtures and screenshot evidence are retained in the run artifacts along with the exact tested source.
+GitHub Actions runs Python unit/contract tests, builds the nonroot Docker image, and drives the actual container using Chromium. Existing interaction/layout/clipboard/flow tests remain, plus two independent browser contexts, unauthorized cross-instance reads/deletes/jobs, IndexedDB persistence, a real Docker restart, and isolated close/delete operations. Screenshots and test summaries are retained as artifacts. No real captures or session secrets are included in the fixtures/evidence.
 
 ```sh
 python -m pip install -r requirements.txt pytest httpx

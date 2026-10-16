@@ -14,7 +14,7 @@
     $('open-relations').setAttribute('aria-expanded','true');
     $('relations-content').replaceChildren(el('div','empty-detail',`#${number} の通信を解析中...`));A.layout?.refresh();
     try{
-      const result=await A.api(`/api/captures/${capture}/packets/${number}/relations`,{signal:request.signal});
+      const result=await A.local.query(capture, 'relations', {number}, request.signal);
       if(controller!==request||state.active?.id!==capture)return;
       data=result;
       for(const packet of data.packets)if(!state.packetCache.has(packet.number))state.packetCache.set(packet.number,{

@@ -40,7 +40,7 @@ jobs:
         run: docker build -t packet-capture-workbench:ci .
       - name: Container integration test
         run: |
-          docker run --rm -d --name packet-workbench-ci --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -v packet-workbench-ci-data:/data -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
+          docker run --rm -d --name packet-workbench-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
           for i in $(seq 1 45); do
             if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
             sleep 2
@@ -59,6 +59,7 @@ jobs:
           node tests/browser_inspection.js
           python -m tests.formal_capture artifacts/lab-inspection.pcap
           node tests/browser_formal.js
+          node tests/browser_local.js
       - name: Container logs and cleanup
         if: always()
         run: |

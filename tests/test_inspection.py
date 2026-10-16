@@ -5,6 +5,7 @@ import app.main as main
 from app.inspection import parse_pdml
 from app.relationships import project
 from tests.inspection_capture import pcap
+from tests.instance_client import upload, query
 
 
 def flatten(fields):
@@ -48,29 +49,25 @@ def test_flow_does_not_guess_application_pairs_from_reverse_direction():
 
 
 @pytest.mark.skipif(shutil.which('tshark') is None, reason='TShark is required in CI')
-def test_inspection_and_evidenced_dns_http_and_ack_links(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, 'store', main.CaptureStore(tmp_path))
-    with TestClient(main.app) as client:
-        cid=client.post('/api/captures',files={'file':('inspect.pcap',pcap())}).json()['id']
-        base=f'/api/captures/{cid}/packets'
-        detail=client.get(base+'/1')
-        assert detail.status_code==200, detail.text
-        fields=list(flatten(detail.json()['fields']))
+def test_inspection_and_evidenced_dns_http_and_ack_links(tmp_path):
+    with TestClient(main.create_app(runtime_dir=tmp_path)) as client:
+        handle=upload(client,pcap())
+        def run(op,n):
+            state=query(client,handle,op,{'number':n})
+            assert state['state']=='done',state
+            return state['result']
+        detail=run('detail',1)
+        fields=list(flatten(detail['fields']))
         src=next(field for field in fields if field['name']=='ip.src')
         assert src['value']=='192.0.2.10'
         assert src['byte_range']=={'offset':26,'length':4}
-        assert detail.json()['hex'][52:60]=='c000020a'
+        assert detail['hex'][52:60]=='c000020a'
         assert next(f for f in fields if f['name']=='frame.number')['byte_range'] is None
-        dns=client.get(base+'/1/relations')
-        assert dns.status_code==200, dns.text
-        dns=dns.json()
+        dns=run('relations',1)
         assert [p['number'] for p in dns['packets']]==[1,3]
         assert any(e['parent']==1 and e['child']==3 and e['kind']=='response' for e in dns['relations'])
-        http=client.get(base+'/7/relations')
-        assert http.status_code==200, http.text
-        http=http.json()
+        http=run('relations',7)
         assert [p['number'] for p in http['packets']]==list(range(4,10))
         assert any(e['parent']==7 and e['child']==8 and e['kind']=='response' for e in http['relations'])
         assert any(e['kind']=='ack' for e in http['relations'])
-        assert client.get(base+'/999/relations').status_code==422
-        assert client.get(base+'/0/relations').status_code==422
+        assert query(client,handle,'relations',{'number':999})['state']=='error'

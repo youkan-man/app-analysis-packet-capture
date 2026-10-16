@@ -50,19 +50,23 @@
   }
   async function openCompare() {
     if (state.pins.length < 2 || !state.active) return;
+    const captureId = state.active.id;
+    const targets = state.pins.map(pin => ({...pin}));
     $("compare-panel").hidden = false;
     $("compare-progress").textContent = "詳細を取得中...";
     $("compare-table").replaceChildren();
     try {
-      await Promise.all(state.pins.map(async pin => {
+      await Promise.all(targets.map(async pin => {
         if (!state.compareDetails.has(pin.number)) {
-          state.compareDetails.set(pin.number,
-            await api(`/api/captures/${state.active.id}/packets/${pin.number}`));
+          const detail = await A.local.query(captureId, "detail", {number:pin.number});
+          if (state.active?.id === captureId) state.compareDetails.set(pin.number, detail);
         }
       }));
+      if (state.active?.id !== captureId) return;
       renderComparison();
       $("compare-progress").textContent = `${state.pins.length}件`;
     } catch (error) {
+      if (state.active?.id !== captureId) return;
       $("compare-progress").textContent = error.message;
       status("比較: " + error.message, "error");
     }
