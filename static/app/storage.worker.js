@@ -32,7 +32,7 @@ async function transaction(stores,mode,build) {
     tx.oncomplete = () => resolve(result?.result);
     tx.onabort = () => reject(new Error(tx.error?.name === 'QuotaExceededError'
       ? 'ブラウザの保存容量が不足しています。不要なローカルファイルを削除してください'
-      : 'ブラウザへの保存に失敗しました。ファイルは送信していません'));
+      : 'ブラウザのデータ操作に失敗しました。保存領域を確認してください'));
     tx.onerror = () => {}; // onabort is the single failure boundary.
   });
 }
@@ -81,13 +81,19 @@ function instance(localId) {
   })().catch(error=>{if(slots.get(localId)===slot)slots.delete(localId);throw error;});
   return slot;
 }
-async function release(slot) {
-  if (!slot.id) return;
-  await remote('/api/instances/'+slot.id,{method:'DELETE',headers:authorize(slot),keepalive:true}).catch(()=>{});
+async function cleanup(url,slot) {
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3000);
+  try {await remote(url,{method:'DELETE',headers:authorize(slot),keepalive:true,signal:controller.signal});}
+  catch {} // A lost connection is eventually reclaimed by the server lease.
+  finally {clearTimeout(timer);}
 }
-async function close(localId) {
+async function release(slot) {
+  if(slot.id)await cleanup('/api/instances/'+slot.id,slot);
+}
+async function close(localId,reason='closed') {
   const slot=slots.get(localId); if(!slot)return;
-  slots.delete(localId);slot.closed=true;slot.controller.abort();
+  slots.delete(localId);slot.closed=true;slot.reason=reason;slot.controller.abort();
   await release(slot);
 }
 function pause(ms,signal) {
@@ -119,13 +125,15 @@ async function query(localId,operation,payload,signal) {
         await pause(delay,signal);delay=Math.min(500,delay*1.3);
       }
     } catch(error) {
-      if(error.status===404&&attempt===0&&!signal.aborted&&!slot.closed&&slots.get(localId)===slot) {
-        // A restart or idle expiry never loses the browser's source file.
-        await close(localId);continue;
+      if(attempt===0&&!signal.aborted&&(slot.reason==='expired'||
+        (error.status===404&&!slot.closed&&slots.get(localId)===slot))) {
+        // Concurrent callers share the replacement; an explicit close never reopens.
+        if(slots.get(localId)===slot)await close(localId,'expired');
+        continue;
       }
       throw error;
     } finally {
-      if(jobURL)await remote(jobURL,{method:'DELETE',headers:authorize(slot),keepalive:true}).catch(()=>{});
+      if(jobURL)void cleanup(jobURL,slot);
     }
   }
   throw new Error('解析インスタンスを開き直せませんでした');

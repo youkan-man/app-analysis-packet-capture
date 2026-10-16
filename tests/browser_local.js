@@ -120,9 +120,12 @@ const {execFileSync}=require('node:child_process');
     await eventually(async()=>(await a.request.get(origin+'/api/instances/'+lastA.id,{headers:{Authorization:lastA.auth}})).status()===404);
     assert.equal(await pageB.locator('.capture-item').count(),1);
     await pageA.locator('.capture-open').click();await ready(pageA,7);
+    // Local deletion must still work while this browser cannot reach the server.
+    await a.setOffline(true);
     pageA.once('dialog',dialog=>dialog.accept());
     await pageA.locator('.remove-capture').click();
     await pageA.waitForFunction(()=>window.PacketApp.state.captures.length===0);
+    await a.setOffline(false);
     await pageA.reload({waitUntil:'networkidle'});
     assert.equal(await pageA.locator('.capture-item').count(),0);
     assert.equal(await pageB.locator('.capture-item').count(),1);
@@ -133,7 +136,7 @@ const {execFileSync}=require('node:child_process');
     fs.writeFileSync('artifacts/browser-local-checks.json',JSON.stringify({
       isolatedBrowsers:true,foreignRead:404,foreignDelete:404,foreignJob:404,
       localBlobVerified:true,capabilityNotPersisted:true,sameInstanceForQueries:true,
-      restartRecovered:true,closeReleasesInstance:true,localDeleteIsolated:true,errors,
+      restartRecovered:true,closeReleasesInstance:true,localDeleteIsolated:true,offlineDelete:true,errors,
     },null,2));
     console.log('Browser-local isolation and real Docker restart passed');
   }catch(error){await pageA.screenshot({path:'artifacts/browser-local-failure.png'}).catch(()=>{});throw error;}

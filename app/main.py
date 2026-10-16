@@ -66,7 +66,11 @@ def create_app(runtime_dir: Path | None = None, idle_seconds: float | None = Non
     @app.middleware('http')
     async def private_responses(request: Request, call_next):
         origin = request.headers.get('origin')
-        if request.url.path.startswith('/api/') and origin and urlsplit(origin).netloc != request.headers.get('host'):
+        try:
+            cross_origin = origin and urlsplit(origin).netloc != request.headers.get('host')
+        except ValueError:
+            cross_origin = True
+        if request.url.path.startswith('/api/') and cross_origin:
             return JSONResponse({'detail': '異なるオリジンからは操作できません'}, status_code=403)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
