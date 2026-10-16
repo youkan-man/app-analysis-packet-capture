@@ -13,7 +13,6 @@
     submitting: '解析を要求中…', queued: '解析の開始待ち…', reconnecting: '解析に再接続中…',
   };
   const active = new Map(), surfaces = new Map();
-  let ticker = null;
   function surface(selector, scope) {
     const target = document.querySelector(selector);
     if (!target) return null;
@@ -26,9 +25,8 @@
     const message = A.el('span', 'loading-message');
     message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
     const context = A.el('span', 'loading-context');
-    const elapsed = A.el('span', 'loading-elapsed'); elapsed.setAttribute('aria-hidden', 'true');
-    mask.append(spinner, message, context, elapsed); wrapper.append(mask);
-    const view = {target, wrapper, mask, message, context, elapsed};
+    mask.append(spinner, message, context); wrapper.append(mask);
+    const view = {target, wrapper, mask, message, context};
     surfaces.set(target, view); return view;
   }
   function summary() {
@@ -41,13 +39,6 @@
     }
     node.hidden = !pending.length;
     node.textContent = pending.at(-1)?.message || '';
-    if (pending.length && !ticker) ticker = setInterval(() => {
-      for (const task of active.values()) if (!task.failed) {
-        const seconds = Math.floor((performance.now() - task.started) / 1000);
-        task.views.forEach(view => {view.elapsed.textContent = seconds ? `経過 ${seconds}秒` : '';});
-      }
-    }, 1000);
-    if (!pending.length && ticker) {clearInterval(ticker); ticker = null;}
   }
   function hide(task) {
     task.views.forEach(view => {
@@ -64,7 +55,7 @@
   }
   function begin(scope, label, context = '') {
     const views = scopes[scope].map(selector => surface(selector, scope)).filter(Boolean);
-    const task = {views, label, message: label, started: performance.now(), failed: false};
+    const task = {views, label, message: label, failed: false};
     active.set(scope, task);
     const current = () => active.get(scope) === task;
     function paint() {
@@ -74,7 +65,7 @@
         view.message.setAttribute('role', task.failed ? 'alert' : 'status');
         view.message.textContent = task.message;
         view.context.textContent = context; view.context.hidden = !context;
-        view.elapsed.textContent = ''; view.mask.hidden = false;
+        view.mask.hidden = false;
       });
       summary();
     }

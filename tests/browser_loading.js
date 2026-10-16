@@ -31,7 +31,11 @@ const path = require('node:path');
     request.postDataJSON().operation===operation && (number===undefined || request.postDataJSON().payload.number===number);
   const scope = name => `[data-loading-scope="${name}"]`;
   const busy = name => page.locator(`${scope(name)}[data-loading-state="busy"] .loading-mask`).first();
-  const shot = name => page.screenshot({path:`artifacts/loading-${name}.png`});
+  const shot = async name => {
+    assert.equal(await page.locator('.loading-elapsed').count(), 0);
+    assert.doesNotMatch((await page.locator('.loading-mask').allTextContents()).join('\n'), /経過\s*\d+\s*秒/);
+    return page.screenshot({path:`artifacts/loading-${name}.png`});
+  };
   async function idle() {
     await page.waitForFunction(()=>!document.body.classList.contains('has-pending'));
     assert.equal(await page.locator('.loading-surface[data-loading-state="busy"]').count(),0);
@@ -52,6 +56,12 @@ const path = require('node:path');
     assert.equal(await page.locator('#packet-scroll').getAttribute('aria-busy'),'true');
     assert.equal(await page.locator('#close-capture').isEnabled(),true);
     assert.equal(await page.locator('#selection-tools').count(),0);
+    // Cross the former one-second tick while the real upload remains held.
+    await page.waitForTimeout(1200);
+    assert.equal(await busy('packets').locator('.loading-spinner').isVisible(), true);
+    assert.match(await busy('packets').textContent(), /解析データを送信中/);
+    assert.doesNotMatch(fs.readFileSync('static/app/loading.js', 'utf8'), /loading-elapsed|\b(?:setInterval|clearInterval)\s*\(/);
+    assert.doesNotMatch(fs.readFileSync('static/style.css', 'utf8'), /loading-elapsed/);
     await shot('upload');
     upload.release(); await ready(1);
 
@@ -115,7 +125,7 @@ const path = require('node:path');
     await shot('mobile');mobile.release();await ready(3);
     assert.deepEqual(errors,[]);
     fs.writeFileSync('artifacts/loading-checks.json',JSON.stringify({realResponses:true,
-      stages:true,staleRequests:true,closeDuringLoad:true,errorThenRetry:true,
+      elapsedTimeRemoved:true,stages:true,staleRequests:true,closeDuringLoad:true,errorThenRetry:true,
       comparison:true,relations:true,mobile:true,reducedMotion:true,errors},null,2));
     console.log('Loading states passed: delayed real requests, stale completion, errors, close, mobile');
   } catch(error) {
