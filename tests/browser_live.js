@@ -118,7 +118,10 @@ const fs = require('node:fs');
     await disabled.locator('#open-live').click();
     await disabled.locator('#live-status.is-error').waitFor();
     assert.equal(await disabled.locator('#live-start').isDisabled(),true);
-    assert.equal(await disabled.locator('#live-options').isDisabled(),true);
+    assert.equal(await disabled.locator('#live-options').evaluate(node => node.disabled),true);
+    for (const id of ['live-interface','live-protocol','live-port','live-host']) {
+      assert.equal(await disabled.locator('#' + id).isDisabled(),true);
+    }
     await disabled.screenshot({path:'artifacts/capture-disabled.png'});
     assert.deepEqual(errors,[]);
     fs.writeFileSync('artifacts/live-capture-checks.json',JSON.stringify({
