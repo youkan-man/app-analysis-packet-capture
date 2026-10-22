@@ -3,6 +3,7 @@
   'use strict';
   const A = window.PacketApp, {$} = A;
   let active = false, busy = false, timer = null, config = null, opener = null, savedOptions = null;
+  let activity = 'idle';
   const dialog = $('live-dialog');
   const messages = {capture_stop: '取得を停止中…', capture_download: '取得データを受信中…',
     validating: '取得データを確認中…', saving: 'ブラウザに保存中…'};
@@ -12,18 +13,20 @@
     $('live-status').setAttribute('role', error ? 'alert' : 'status');
   }
   function controls() {
-    $('live-options').disabled = active || busy;
+    $('live-options').disabled = active || busy || !config?.enabled || !config.interfaces.length;
     $('live-start').hidden = active;
     $('live-start').disabled = busy || !config?.enabled || !config.interfaces.length;
     $('live-save').hidden = !active;
-    $('live-save').disabled = busy;
+    $('live-save').disabled = busy || activity === 'failed';
     $('live-discard').hidden = !active;
     $('live-discard').disabled = busy;
     $('live-reload').hidden = active;
     $('live-reload').disabled = busy;
     $('live-status').classList.toggle('is-busy', busy);
     $('open-live').classList.toggle('is-recording', active);
-    $('open-live').textContent = active ? 'キャプチャ中' : 'キャプチャ';
+    const labels = {starting: '取得開始中', recording: 'キャプチャ中', complete: '保存待ち',
+      pending: '保存待ち', failed: '取得エラー', unknown: '取得確認', saving: '保存中'};
+    $('open-live').textContent = active || (busy && activity !== 'idle') ? labels[activity] || '取得確認' : 'キャプチャ';
     $('open-live').setAttribute('aria-expanded', String(dialog.open));
   }
   async function configure() {
@@ -35,7 +38,7 @@
       for (const item of config.interfaces) {
         const option = document.createElement('option'); option.value = item.name; option.textContent = item.label; select.append(option);
       }
-      message(config.enabled ? (config.interfaces.length ? '開始するインターフェースを選択してください' : '利用可能なインターフェースがありません') : config.reason, !config.enabled);
+      message(config.enabled ? (config.interfaces.length ? '' : '利用可能なインターフェースがありません') : config.reason, !config.enabled);
     } catch (error) {config = null; message(error.message, true);}
     finally {busy = false; controls();}
   }
@@ -57,10 +60,11 @@
     try {
       const result = await A.local.live('status');
       if (!active || busy) return;
+      activity = result.state; controls();
       if (result.state === 'complete') {await finish(); return;}
       if (result.state === 'failed') {message(result.error, true); A.status('キャプチャに失敗しました', 'error'); return;}
       message(`${result.state === 'starting' ? '取得を開始中' : '取得中'} · ${result.interface} · ${A.formatSize(result.bytes)}`);
-    } catch (error) {message(error.message, true);}
+    } catch (error) {activity = 'unknown'; controls(); message(error.message, true);}
     schedule();
   }
   function readOptions() {
@@ -72,28 +76,29 @@
   }
   async function start(event) {
     event.preventDefault(); if (busy || active || !$('live-form').reportValidity()) return;
-    savedOptions = readOptions(); busy = true; controls(); message('取得を開始中…');
+    savedOptions = readOptions(); activity = 'starting'; busy = true; controls(); message('取得を開始中…');
     try {
       const result = await A.local.live('start', savedOptions);
-      active = true;
-      message(result.state === 'failed' ? result.error : `取得中 · ${result.interface}`, result.state === 'failed');
+      active = true; activity = result.state;
+      message(result.state === 'failed' ? result.error : `${result.state === 'starting' ? '取得を開始中' : '取得中'} · ${result.interface}`, result.state === 'failed');
     } catch (error) {
       // The response may be lost after dumpcap starts. Keep stop/discard reachable.
-      active = !(error.status >= 400 && error.status < 500); message(error.message, true);
+      active = !(error.status >= 400 && error.status < 500); activity = active ? 'unknown' : 'idle'; message(error.message, true);
     } finally {busy = false; controls(); schedule();}
   }
   async function finish() {
     if (!active || busy) return;
-    clearTimeout(timer); busy = true; controls(); message('取得を停止中…');
+    clearTimeout(timer); activity = 'saving'; busy = true; controls(); message('取得を停止中…');
     try {
       const record = await A.local.live('save', {}, phase => message(messages[phase] || '保存中…'));
-      active = false; savedOptions = null; $('live-save').textContent = '停止して保存';
+      active = false; activity = 'idle'; savedOptions = null; $('live-save').textContent = '停止して保存';
       message('ブラウザに保存しました'); dialog.close();
       A.viewer.resetPacketView();
       localStorage.setItem(A.storage.current, record.id);
       await A.viewer.loadCaptures();
       if (!$('status-dot').classList.contains('error')) A.status(record.filename + ' · ローカル保存済み');
     } catch (error) {
+      activity = 'pending';
       message(error.message, true); A.status('取得データの保存に失敗しました。キャプチャ画面から再試行してください', 'error');
       $('live-save').textContent = '保存を再試行';
       // Do not discard or repeatedly retry a failed IndexedDB write.
@@ -102,7 +107,7 @@
   async function discard() {
     if (!active || busy || !confirm('取得データを保存せずに破棄しますか？')) return;
     clearTimeout(timer); busy = true; controls(); message('取得を終了中…');
-    try {await A.local.live('discard'); active = false; savedOptions = null; message('取得データを破棄しました');}
+    try {await A.local.live('discard'); active = false; activity = 'idle'; savedOptions = null; message('取得データを破棄しました'); A.status('取得データを破棄しました');}
     catch (error) {message(error.message, true);}
     finally {busy = false; $('live-save').textContent = '停止して保存'; controls();}
   }

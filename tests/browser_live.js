@@ -99,6 +99,8 @@ const fs = require('node:fs');
     // Invalid BPF comes back as a genuine dumpcap failure and can be discarded.
     await page.locator('#live-bpf').fill('udp and (');await page.locator('#live-start').click();
     await page.locator('#live-status.is-error').waitFor();
+    assert.equal(await page.locator('#open-live').textContent(),'取得エラー');
+    assert.equal(await page.locator('#live-save').isDisabled(),true);
     await shot('invalid-filter');
     page.once('dialog',dialog=>dialog.accept());await page.locator('#live-discard').click();
     await page.waitForFunction(()=>!document.querySelector('#live-start').hidden && !document.querySelector('#live-start').disabled);
@@ -116,6 +118,7 @@ const fs = require('node:fs');
     await disabled.locator('#open-live').click();
     await disabled.locator('#live-status.is-error').waitFor();
     assert.equal(await disabled.locator('#live-start').isDisabled(),true);
+    assert.equal(await disabled.locator('#live-options').isDisabled(),true);
     await disabled.screenshot({path:'artifacts/capture-disabled.png'});
     assert.deepEqual(errors,[]);
     fs.writeFileSync('artifacts/live-capture-checks.json',JSON.stringify({
