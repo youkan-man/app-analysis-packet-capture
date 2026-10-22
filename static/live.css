@@ -1,0 +1,19 @@
+/* Focused capture setup; the underlying inspection workspace is unchanged. */
+.live-dialog {width:min(560px,calc(100vw - 20px));max-height:calc(100vh - 20px);padding:0;border:1px solid var(--line);border-radius:3px;color:var(--ink);background:var(--panel);overflow:auto}
+.live-dialog::backdrop {background:#25374755}
+.live-options {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 12px;margin:0;padding:10px;border:0;min-width:0}
+.live-options label {display:flex;flex-direction:column;gap:4px;min-width:0}
+.live-options input,.live-options select {width:100%;min-width:0;border:1px solid var(--line);border-radius:2px;background:var(--panel);padding:5px 6px}
+.live-options input[readonly] {background:var(--panel-2)}
+.live-wide {grid-column:1/-1}
+.live-advanced {border-top:1px solid var(--line-soft);padding-top:8px}
+.live-advanced summary {cursor:pointer}
+.live-advanced .live-options {padding:8px 0 0}
+.live-status {margin:0 10px;padding:8px 0;overflow-wrap:anywhere;min-height:30px}
+.live-status:empty {display:none}
+.live-status.is-error {color:var(--danger)}
+.live-status.is-busy::before {content:'';display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite}
+.live-actions {display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+#open-live.is-recording {color:var(--danger);border-color:var(--danger);background:#fdf4f3}
+#open-live.is-recording::before {content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+@media(prefers-reduced-motion:reduce) {.live-status.is-busy::before {animation:none}}

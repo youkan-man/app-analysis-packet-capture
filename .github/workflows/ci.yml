@@ -36,11 +36,16 @@ jobs:
           python -m compileall -q app tests
           for file in static/app/*.js; do node --check "$file"; done
           pytest -q --junitxml=artifacts/pytest.xml
+          node tests/live_worker_contract.js
+          docker compose -f compose.yaml -f compose.capture.yaml config -q
       - name: Build Docker image
         run: docker build -t packet-capture-workbench:ci .
       - name: Container integration test
         run: |
-          docker run --rm -d --name packet-workbench-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
+          docker volume create pcana-capture-ci-socket
+          docker run --rm -d --name packet-capture-agent-ci --init --user 0:0 --network host --read-only --cap-drop=ALL --cap-add=NET_RAW --security-opt no-new-privileges --tmpfs /tmp -v pcana-capture-ci-socket:/run/capture -e CAPTURE_INTERFACES=lo packet-capture-workbench:ci uvicorn app.capture_agent:app --uds /run/capture/agent.sock --no-access-log
+          docker run --rm -d --name packet-workbench-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -v pcana-capture-ci-socket:/run/capture:ro -e CAPTURE_SOCKET=/run/capture/agent.sock -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
+          docker run --rm -d --name packet-capture-disabled-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -p 127.0.0.1:18082:8080 packet-capture-workbench:ci
           for i in $(seq 1 45); do
             if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
             sleep 2
@@ -61,11 +66,17 @@ jobs:
           node tests/browser_formal.js
           node tests/browser_local.js
           node tests/browser_loading.js
+          python tests/live_traffic.py > artifacts/live-traffic.log 2>&1 &
+          traffic_pid=$!
+          trap 'kill "$traffic_pid" || true' EXIT
+          node tests/browser_live.js
       - name: Container logs and cleanup
         if: always()
         run: |
           docker logs packet-workbench-ci > artifacts/server.log 2>&1 || true
-          docker stop packet-workbench-ci || true
+          docker logs packet-capture-agent-ci > artifacts/capture-agent.log 2>&1 || true
+          docker stop packet-workbench-ci packet-capture-agent-ci packet-capture-disabled-ci || true
+          docker volume rm pcana-capture-ci-socket || true
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
