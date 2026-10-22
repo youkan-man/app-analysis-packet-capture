@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from .capture_proxy import router as capture_router
 from .filters import FilterError, parse_filter_groups
 from .instances import CAPABILITY, CapacityError, Instances, MissingInstance
 
@@ -60,7 +61,8 @@ def create_app(runtime_dir: Path | None = None, idle_seconds: float | None = Non
         finally:
             await asyncio.to_thread(application.state.instances.close)
 
-    app = FastAPI(title='Packet Capture Workbench', version='0.4.0', lifespan=lifespan)
+    app = FastAPI(title='Packet Capture Workbench', version='0.5.0', lifespan=lifespan)
+    app.include_router(capture_router)
     app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 
     @app.middleware('http')

@@ -147,16 +147,19 @@ async function query(localId,operation,payload,signal,report) {
   }
   throw new Error('解析インスタンスを開き直せませんでした');
 }
+importScripts('/static/app/live.worker.js');
+const liveCapture = self.createLiveCapture({remote, store, random, cleanup});
 self.onmessage=async event=>{
   const {id,method,args}=event.data;
   if(method==='cancel'){requests.get(id)?.abort();return;}
-  if(method==='closeAll'){await Promise.all([...slots.keys()].map(close));return;}
+  if(method==='closeAll'){await Promise.all([liveCapture.close(), ...[...slots.keys()].map(close)]);return;}
   const controller=new AbortController();requests.set(id,controller);
   let lastPhase='';
   const report=phase=>{if(!controller.signal.aborted&&phase!==lastPhase){lastPhase=phase;self.postMessage({id,phase});}};
   try {
     let result;
-    if(method==='list') result=await list();
+    if(method.startsWith('live.')) result=await liveCapture.call(method.slice(5),args,report);
+    else if(method==='list') result=await list();
     else if(method==='import') result=await store(args.file,report);
     else if(method==='close') result=await close(args.id);
     else if(method==='remove') {
@@ -168,6 +171,6 @@ self.onmessage=async event=>{
     else throw new Error('未対応の操作です');
     if(!controller.signal.aborted)self.postMessage({id,result});
   } catch(error) {
-    if(!controller.signal.aborted)self.postMessage({id,error:{name:error.name,message:error.message}});
+    if(!controller.signal.aborted)self.postMessage({id,error:{name:error.name,message:error.message,status:error.status}});
   } finally {requests.delete(id);}
 };

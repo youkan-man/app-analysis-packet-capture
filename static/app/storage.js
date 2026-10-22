@@ -8,7 +8,7 @@
     const request=pending.get(data.id);if(!request)return;
     if (data.phase) {request.onProgress?.(data.phase); return;}
     pending.delete(data.id);request.cleanup();
-    if(data.error){const error=new Error(data.error.message);error.name=data.error.name;request.reject(error);}
+    if(data.error){const error=new Error(data.error.message);error.name=data.error.name;error.status=data.error.status;request.reject(error);}
     else request.resolve(data.result);
   };
   worker.onerror=worker.onmessageerror=()=>{
@@ -34,6 +34,7 @@
   }
   window.addEventListener('pagehide',()=>worker.postMessage({method:'closeAll'}));
   A.local={
+    live:(method,args={},onProgress)=>call("live."+method,args,undefined,onProgress),
     list:()=>call('list'),import:(file,onProgress)=>call('import',{file},undefined,onProgress),remove:id=>call('remove',{id}),
     close:id=>call('close',{id}),query:(id,operation,payload={},signal,onProgress)=>call('query',{id,operation,payload},signal,onProgress),
   };

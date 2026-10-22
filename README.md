@@ -11,6 +11,56 @@ docker compose up --build -d
 
 Open `http://127.0.0.1:8080`. Compose binds to loopback by default. For LAN access use a trusted HTTPS reverse proxy: plain HTTP does not protect captures or capability headers from network observers.
 
+## Live packet capture (Linux Docker host)
+
+```sh
+docker compose -f compose.yaml -f compose.capture.yaml up --build -d
+```
+
+Use **キャプチャ** to select a host interface, protocol, IP address/direction and port.
+No Wireshark filter syntax is needed for these controls. An optional BPF capture
+filter lives under **詳細条件**; it is different from a display filter. The dialog
+also sets automatic stop limits (seconds, file size and packet count) and snapshot
+length. **停止して保存** finalizes PCAPNG, stores the original in this browser's
+IndexedDB, and opens it in the existing packet viewer. Reaching any limit does the
+same automatically. While recording, the dialog can be closed to inspect another
+file; the capture button retains the recording state. There is no elapsed-time
+counter. This version inspects the new capture after it stops, not as live rows.
+
+The capture sidecar alone gets `NET_RAW` and the host network namespace. The web
+and TShark analysis container stays nonroot, without network capabilities. The
+sidecar runs only the fixed dumpcap command (non-promiscuous mode) and a Unix-socket
+API, with no published TCP port, shell arguments, remote capture URLs, pipes or
+extcap selection. To restrict native interfaces, set `CAPTURE_INTERFACES=eth0,lo`
+when starting Compose. Defaults: 60 seconds, 32 MiB, 100,000 packets; maximum
+settings: 3,600 seconds, 64 MiB, 1,000,000 packets. A disconnected active session
+expires after 120 seconds; stopped data expires after 15 minutes without requests.
+
+Every capture session has a separate in-memory capability. Another browser cannot
+list, stop, fetch or delete it. Start retries with the same capability do not
+create duplicate capture processes. Download does not delete the temporary copy:
+only a successful browser transaction acknowledges it. Storage errors leave it
+available for **保存を再試行** until expiry. **破棄** stops without importing, after
+confirmation. Leaving the page attempts cleanup and falls back to bounded expiry.
+
+The default `compose.yaml` remains an offline viewer with capture disabled. The
+optional configuration targets **Linux Docker Engine**: Docker Desktop's host
+networking does not expose Windows/macOS physical interfaces at layer 2. The
+capture source is the Docker host, never the browser user's device. The named
+`capture_socket` volume contains only the Unix socket; packet bytes live in the
+sidecar's tmpfs and the browser, not a shared disk capture library.
+
+**Enable host capture only for trusted operators behind authenticated HTTPS.**
+Session isolation protects stored results, not the shared network: an authorized
+operator can capture traffic visible on an allowed interface, including other
+users' network traffic. Capabilities are not a user-login or per-interface user
+permission system. Host administrators can inspect transient data. Do not deploy
+this feature on an anonymously accessible service.
+
+Capture implementation references: Wireshark's `dumpcap(1)` manual
+(`https://www.wireshark.org/docs/man-pages/dumpcap.html`) and Docker host networking
+(`https://docs.docker.com/engine/network/drivers/host/`).
+
 ## Ownership and processing
 
 1. Opening a file saves the original Blob and its metadata atomically in this browser profile's **IndexedDB**. Small view settings, pins and saved filters remain in localStorage. A storage failure stops the operation; it never falls back to a shared server store.
@@ -52,7 +102,7 @@ Cancelled queued jobs are removed. Work already executing may finish with its re
 
 ## Verification
 
-GitHub Actions runs Python unit/contract tests, builds the nonroot Docker image, and drives the actual container using Chromium. Existing interaction/layout/clipboard/flow tests remain, plus two independent browser contexts, unauthorized cross-instance reads/deletes/jobs, IndexedDB persistence, a real Docker restart, and isolated close/delete operations. Screenshots and test summaries are retained as artifacts. No real captures or session secrets are included in the fixtures/evidence.
+GitHub Actions runs Python unit/contract tests, builds the nonroot Docker image, and drives the actual container using Chromium. Existing interaction/layout/clipboard/flow tests remain, plus two independent browser contexts, unauthorized cross-instance reads/deletes/jobs, IndexedDB persistence, a real Docker restart, and isolated close/delete operations. Screenshots and test summaries are retained as artifacts. No production captures or session secrets are included in the fixtures/evidence. Live-capture CI uses real dumpcap on the runner host loopback with generated UDP traffic restricted to fixture ports, verifies manual stop and packet-limit stop, browser persistence and cross-browser access denial, and retains actual UI screenshots.
 
 ```sh
 python -m pip install -r requirements.txt pytest httpx
