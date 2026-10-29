@@ -20,10 +20,14 @@
     $('open-live').classList.toggle('is-recording',active);
     $('open-live').textContent=active?'キャプチャ中':'キャプチャ';
     $('open-live').setAttribute('aria-expanded',String(dialog.open));
+    scheduleCatalog();
   }
   function scheduleCatalog() {
-    clearTimeout(refreshTimer);
-    if(dialog.open&&!active&&!busy&&!closed)refreshTimer=setTimeout(()=>configure(true),4000);
+    if(!dialog.open||active||busy||closed) {
+      clearTimeout(refreshTimer);refreshTimer=null;return;
+    }
+    // Closing/reopening the dialog during stop/discard must resume discovery too.
+    if(!refreshTimer&&!refreshing)refreshTimer=setTimeout(()=>{refreshTimer=null;void configure(true);},4000);
   }
   async function configure(background=false) {
     if(active||busy||refreshing)return;
@@ -81,7 +85,7 @@
   }
   async function start(event) {
     event.preventDefault();if(active||busy||!$('live-form').reportValidity())return;
-    clearTimeout(refreshTimer);catalogRequest++;
+    clearTimeout(refreshTimer);refreshTimer=null;catalogRequest++;
     busy=true;controls();message('キャプチャを開始中…');
     try {
       const state=await A.local.live('start',readOptions());
@@ -132,7 +136,7 @@
   $('open-live').addEventListener('click',show);
   $('live-close').addEventListener('click',()=>dialog.close());
   dialog.addEventListener('keydown',event=>{if(event.key==='Escape')event.stopPropagation();});
-  dialog.addEventListener('close',()=>{clearTimeout(refreshTimer);controls();opener?.focus({preventScroll:true});});
+  dialog.addEventListener('close',()=>{clearTimeout(refreshTimer);refreshTimer=null;controls();opener?.focus({preventScroll:true});});
   $('live-form').addEventListener('submit',start);
   $('live-reload').addEventListener('click',()=>configure());
   $('live-interface').addEventListener('change',controls);
