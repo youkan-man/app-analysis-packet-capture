@@ -1,10 +1,11 @@
 /* UI-to-worker boundary. The UI receives data, never server instance credentials. */
 (() => {
   'use strict';
-  const A=window.PacketApp, pending=new Map();
+  const A=window.PacketApp, pending=new Map(), listeners=new Set();
   const worker=new Worker('/static/app/storage.worker.js');
   let sequence=0, fatal=null;
   worker.onmessage=({data})=>{
+    if(data.event){for(const listener of listeners)listener(data);return;}
     const request=pending.get(data.id);if(!request)return;
     if (data.phase) {request.onProgress?.(data.phase); return;}
     pending.delete(data.id);request.cleanup();
@@ -34,6 +35,7 @@
   }
   window.addEventListener('pagehide',()=>worker.postMessage({method:'closeAll'}));
   A.local={
+    subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);},
     live:(method,args={},onProgress)=>call("live."+method,args,undefined,onProgress),
     list:()=>call('list'),import:(file,onProgress)=>call('import',{file},undefined,onProgress),remove:id=>call('remove',{id}),
     close:id=>call('close',{id}),query:(id,operation,payload={},signal,onProgress)=>call('query',{id,operation,payload},signal,onProgress),

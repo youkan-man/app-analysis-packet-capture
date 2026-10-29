@@ -37,15 +37,13 @@ jobs:
           for file in static/app/*.js; do node --check "$file"; done
           pytest -q --junitxml=artifacts/pytest.xml
           node tests/live_worker_contract.js
-          docker compose -f compose.yaml -f compose.capture.yaml config -q
+          docker compose config -q
       - name: Build Docker image
         run: docker build -t packet-capture-workbench:ci .
       - name: Container integration test
         run: |
-          docker volume create pcana-capture-ci-socket
-          docker run --rm -d --name packet-capture-agent-ci --init --user 0:0 --network host --read-only --cap-drop=ALL --cap-add=NET_RAW --security-opt no-new-privileges --tmpfs /tmp -v pcana-capture-ci-socket:/run/capture -e CAPTURE_INTERFACES=lo packet-capture-workbench:ci uvicorn app.capture_agent:app --uds /run/capture/agent.sock --no-access-log
-          docker run --rm -d --name packet-workbench-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -v pcana-capture-ci-socket:/run/capture:ro -e CAPTURE_SOCKET=/run/capture/agent.sock -p 127.0.0.1:18080:8080 packet-capture-workbench:ci
-          docker run --rm -d --name packet-capture-disabled-ci --init --read-only --cap-drop=ALL --security-opt no-new-privileges --tmpfs /tmp -p 127.0.0.1:18082:8080 packet-capture-workbench:ci
+          docker run --rm -d --name packet-workbench-ci --init --network host --read-only --cap-drop=ALL --cap-add=NET_RAW --tmpfs /tmp packet-capture-workbench:ci uvicorn app.main:app --host 127.0.0.1 --port 18080 --no-access-log
+          docker exec packet-workbench-ci sh -c 'test "$(id -u)" = 10001 && getcap /usr/bin/dumpcap'
           for i in $(seq 1 45); do
             if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
             sleep 2
@@ -74,9 +72,7 @@ jobs:
         if: always()
         run: |
           docker logs packet-workbench-ci > artifacts/server.log 2>&1 || true
-          docker logs packet-capture-agent-ci > artifacts/capture-agent.log 2>&1 || true
-          docker stop packet-workbench-ci packet-capture-agent-ci packet-capture-disabled-ci || true
-          docker volume rm pcana-capture-ci-socket || true
+          docker stop packet-workbench-ci || true
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4

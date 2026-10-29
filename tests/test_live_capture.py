@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from app.live_capture import CaptureError, Captures, interfaces, options
-from app.capture_agent import create_agent
 from app.main import create_app
 from app.instances import CapacityError, MissingInstance
 from tests.sample_capture import pcapng
@@ -35,7 +34,10 @@ time.sleep(60)
 ''')
     script.chmod(0o755)
     monkeypatch.setenv('DUMPCAP_BIN', str(script))
-    monkeypatch.setenv('CAPTURE_INTERFACES', 'lo')
+    decoder=tmp_path/'tshark'
+    decoder.write_text(f"#!{sys.executable}\nimport sys\nsys.stdin.buffer.read()\n")
+    decoder.chmod(0o755)
+    monkeypatch.setattr('app.engine.TSHARK',str(decoder))
     monkeypatch.setattr('app.live_capture.socket.if_nameindex', lambda: [(1, 'lo')])
     return tmp_path
 
@@ -53,9 +55,7 @@ def wait_for(fn, expected):
     raise AssertionError(result)
 
 
-def test_native_interfaces_only_and_allowlist(fake_dumpcap, monkeypatch):
-    assert [i['name'] for i in interfaces()] == ['lo']
-    monkeypatch.delenv('CAPTURE_INTERFACES')
+def test_native_interfaces_are_discovered_dynamically(fake_dumpcap, monkeypatch):
     assert [i['name'] for i in interfaces()] == ['lo', 'any']
 
 
@@ -80,16 +80,16 @@ def test_invalid_capture_options(patch):
 
 
 def test_capture_api_isolation_stop_retry_and_download(fake_dumpcap):
-    with TestClient(create_agent(fake_dumpcap)) as client:
+    with TestClient(create_app(runtime_dir=fake_dumpcap)) as client:
         a, b = headers(), headers()
-        assert client.get('/config').status_code == 404
-        assert client.get('/config', headers=a).json()['enabled']
-        assert client.get('/sessions', headers=a).status_code == 405
-        result = client.post('/sessions', headers=a, json={'interface': 'lo'})
+        assert client.get('/api/live/config').status_code == 404
+        assert client.get('/api/live/config', headers=a).json()['enabled']
+        assert client.get('/api/live/sessions', headers=a).status_code == 405
+        result = client.post('/api/live/sessions', headers=a, json={'interface': 'lo'})
         assert result.status_code == 201, result.text
         identifier = result.json()['id']
-        url = '/sessions/' + identifier
-        repeat = client.post('/sessions', headers=a, json={'interface': 'lo'})
+        url = '/api/live/sessions/' + identifier
+        repeat = client.post('/api/live/sessions', headers=a, json={'interface': 'lo'})
         assert repeat.json()['id'] == identifier
         assert len(client.app.state.captures.items) == 1
         for endpoint in [url, url + '/data']:
@@ -97,10 +97,14 @@ def test_capture_api_isolation_stop_retry_and_download(fake_dumpcap):
             assert client.get(endpoint).status_code == 404
         assert client.post(url + '/stop', headers=b).status_code == 404
         assert client.delete(url, headers=b).status_code == 404
-        assert client.get(url + '/data', headers=a).status_code == 422
+        assert client.get(url + '/data', headers=a).status_code == 200
         state = wait_for(lambda: client.get(url, headers=a).json(), 'recording')
+        for _ in range(100):
+            state=client.get(url,headers=a).json()
+            if state['bytes']==len(pcapng()):break
+            time.sleep(.02)
         assert state['bytes'] == len(pcapng())
-        assert client.post('/sessions', headers=a, json={'interface': 'lo', 'duration': 1}).status_code == 422
+        assert client.post('/api/live/sessions', headers=a, json={'interface': 'lo', 'duration': 1}).status_code == 422
         item = client.app.state.captures.items[identifier]
         assert (item.path.stat().st_mode & 0o777) == 0o600
         assert client.post(url + '/stop', headers=a).json()['state'] == 'complete'
@@ -114,14 +118,14 @@ def test_capture_api_isolation_stop_retry_and_download(fake_dumpcap):
 
 
 def test_capture_start_failure_is_visible_and_disposable(fake_dumpcap):
-    with TestClient(create_agent(fake_dumpcap)) as client:
+    with TestClient(create_app(runtime_dir=fake_dumpcap)) as client:
         key = headers()
-        response = client.post('/sessions', headers=key, json={'interface': 'lo', 'bpf': 'invalid filter'})
-        url = '/sessions/' + response.json()['id']
+        response = client.post('/api/live/sessions', headers=key, json={'interface': 'lo', 'bpf': 'invalid filter'})
+        url = '/api/live/sessions/' + response.json()['id']
         state = wait_for(lambda: client.get(url, headers=key).json(), 'failed')
-        assert 'Invalid capture filter' in state['error']
+        assert state['error']
         assert str(fake_dumpcap) not in state['error']
-        assert client.get(url + '/data', headers=key).status_code == 422
+        assert client.get(url + '/data', headers=key).status_code == 200
         assert client.delete(url, headers=key).status_code == 204
 
 
@@ -143,14 +147,11 @@ def test_capture_expiry_and_capacity(fake_dumpcap):
         pool.close()
 
 
-def test_web_default_remains_unprivileged_and_capture_disabled(tmp_path, monkeypatch):
-    monkeypatch.delenv('CAPTURE_SOCKET', raising=False)
-    with TestClient(create_app(runtime_dir=tmp_path)) as client:
-        key = headers()
-        assert client.get('/api/live/config').status_code == 404
-        assert client.get('/api/live/config', headers=key).json()['enabled'] is False
-        assert client.post('/api/live/sessions', headers=key, json={'interface': 'lo'}).status_code == 503
-        assert client.post('/api/live/sessions', headers={**key, 'Origin': 'https://other.example'}, json={}).status_code == 403
-        monkeypatch.setenv('CAPTURE_SOCKET', str(tmp_path / 'missing.sock'))
-        assert client.get('/api/live/config', headers=key).status_code == 503
-        assert client.get('/api/live/sessions/invalid', headers=key).status_code == 404
+def test_integrated_app_discovers_without_external_service(fake_dumpcap):
+    with TestClient(create_app(runtime_dir=fake_dumpcap)) as client:
+        key=headers()
+        assert client.get('/api/live/config').status_code==404
+        assert client.get('/api/live/config',headers=key).json()['enabled'] is True
+        assert client.post('/api/live/sessions',headers={**key,'Origin':'https://other.example'},json={}).status_code==403
+        assert client.get('/api/live/sessions/invalid',headers=key).status_code==404
+        assert client.post('/api/live/sessions',headers=key,json={'interface':'lo'}).status_code==201

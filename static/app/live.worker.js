@@ -1,91 +1,121 @@
-/* Capture ownership stays in the storage worker. Commit locally before deleting remotely. */
+/* A capture has one browser file from the first click; append commits precede UI updates. */
 'use strict';
-self.createLiveCapture = ({remote, store, random, cleanup}) => {
+self.createLiveCapture = ({remote, random, cleanup, create, append, mark, remove, notify}) => {
   const catalogToken = random(32);
   let slot = null;
   const headers = item => ({Authorization: 'Bearer ' + item.token});
+  const base = item => '/api/live/sessions/' + item.id;
+  const empty = () => ({packets:[],total:0,matched:0,displayed:0,filtered:false,context:0});
   async function request(url, options = {}, binary = false) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), binary ? 120000 : 20000);
     try {
-      if (!binary) return await remote(url, {...options, signal: controller.signal});
-      const response = await fetch(url, {credentials: 'omit', cache: 'no-store', ...options, signal: controller.signal});
+      if (!binary) return await remote(url, {...options, signal:options.signal || controller.signal});
+      const response = await fetch(url, {credentials:'omit',cache:'no-store',...options,signal:controller.signal});
       if (!response.ok) {
         const body = await response.json();
-        throw new Error(body.detail || '取得データを受信できません');
+        const error = new Error(body.detail || '取得データを受信できません'); error.status=response.status; throw error;
       }
-      return await response.blob();
+      return {blob:await response.blob(),offset:Number(response.headers.get('X-Capture-Offset')),
+        end:Number(response.headers.get('X-Capture-End')),available:Number(response.headers.get('X-Capture-Available'))};
     } finally {clearTimeout(timer);}
   }
-  const base = item => '/api/live/sessions/' + item.id;
-  async function discard(bestEffort = false) {
-    const current = slot;
-    if (!current) return;
-    if (current.starting) await current.starting.catch(() => {});
-    if (!current.id && !bestEffort) {
-      // Resolve an uncertain start response using the same idempotency capability.
-      await start(current.options);
-    }
-    if (current.id) {
-      try {await request(base(current) + '/stop', {method: 'POST', headers: headers(current)});}
-      catch (error) {if (!bestEffort && error.status !== 404) throw error;}
-      await cleanup(base(current), current);
-    }
-    current.closed = true;
-    if (slot === current) slot = null;
-  }
-  async function start(args) {
-    if (!slot) slot = {token: random(32), id: null, options: args, closed: false, starting: null, saving: null, record: null};
-    const current = slot;
-    if (JSON.stringify(current.options) !== JSON.stringify(args)) throw new Error('前の取得を保存または破棄してください');
-    if (!current.starting) current.starting = request('/api/live/sessions', {
-      method: 'POST', headers: {...headers(current), 'Content-Type': 'application/json'}, body: JSON.stringify(args),
-    }).then(async result => {
-      current.id = result.id;
-      if (current.closed) {await cleanup(base(current), current); throw new Error('取得を終了しました');}
-      return result;
-    }).catch(error => {
-      if (error.status >= 400 && error.status < 500 && slot === current) slot = null;
-      throw error;
-    }).finally(() => {current.starting = null;});
-    return await current.starting;
-  }
-  async function save(report) {
-    const current = slot;
-    if (!current || current.closed) throw new Error('保存する取得セッションがありません');
-    if (!current.id) await start(current.options);
-    if (current.saving) return current.saving;
-    current.saving = (async () => {
-      if (!current.record) {
-        report('capture_stop');
-        const result = await request(base(current) + '/stop', {method: 'POST', headers: headers(current)});
-        if (result.state !== 'complete') throw new Error(result.error || '取得を停止できません');
-        report('capture_download');
-        const blob = await request(base(current) + '/data', {headers: headers(current)}, true);
-        const name = 'capture-' + current.options.interface.replace(/[^a-zA-Z0-9_.-]/g, '_') + '-' +
-          new Date().toISOString().replace(/[:.]/g, '-') + '.pcapng';
-        current.record = await store(new File([blob], name, {type: 'application/octet-stream'}), report);
-      }
-      // A failed local transaction throws above, retaining the remote session for retry.
-      await cleanup(base(current), current);
-      if (slot === current) slot = null;
-      return current.record;
+  async function start(options) {
+    if (slot) throw new Error('現在のキャプチャを停止してください');
+    const current = {token:random(32),id:null,record:null,options,offset:0,syncing:null,starting:null};
+    slot=current;
+    current.starting=(async()=>{
+      current.record=await create(options.interface);
+      notify({type:'created',record:current.record});
+      const state=await request('/api/live/sessions',{method:'POST',headers:{...headers(current),'Content-Type':'application/json'},body:JSON.stringify(options)});
+      current.id=state.id;
+      return {...state,record:current.record};
     })();
-    try {return await current.saving;}
-    finally {current.saving = null;}
+    try {return await current.starting;}
+    catch(error) {
+      if(current.record) {current.record=await mark(current.record.id,'failed');notify({type:'failed',record:current.record,message:error.message});}
+      // A rejected request cannot have started dumpcap; a lost response may have.
+      if(error.status>=400 && error.status<500) slot=null;
+      throw error;
+    }
+  }
+  async function ensure(current) {
+    if(current.id)return;
+    // An uncertain POST is recovered with the same capability (idempotent server).
+    await current.starting.catch(()=>{});
+    const result=await request('/api/live/sessions',{method:'POST',headers:{...headers(current),'Content-Type':'application/json'},body:JSON.stringify(current.options)});
+    current.id=result.id;
+  }
+  async function sync() {
+    const current=slot;
+    if(!current)throw new Error('取得セッションがありません');
+    if(current.syncing)return current.syncing;
+    current.syncing=(async()=>{
+      await ensure(current);
+      let transfer;
+      do {
+        transfer=await request(base(current)+'/data?offset='+current.offset,{headers:headers(current)},true);
+        if(transfer.offset!==current.offset || transfer.end!==current.offset+transfer.blob.size)throw new Error('受信したデータの位置が一致しません');
+        if(transfer.blob.size) {
+          current.record=await append(current.record.id,transfer.blob,current.offset);
+          current.offset=transfer.end;
+        }
+      } while(transfer.end<transfer.available);
+      const state=await request(base(current),{headers:headers(current)});
+      // Stop can flush another block between the last read and this status.
+      const finished=['complete','failed'].includes(state.state) && current.offset>=state.bytes;
+      return {...state,record:current.record,finished};
+    })();
+    try{return await current.syncing;}finally{current.syncing=null;}
+  }
+  async function finalize() {
+    const current=slot;
+    if(!current)throw new Error('取得セッションがありません');
+    await ensure(current);
+    if(current.syncing)await current.syncing;
+    await request(base(current)+'/stop',{method:'POST',headers:headers(current)});
+    const state=await sync();
+    if(!state.finished)throw new Error('取得データの保存が完了していません。停止を再試行してください');
+    current.record=await mark(current.record.id,state.state==='failed'?'failed':'complete');
+    await cleanup(base(current),current);
+    if(slot===current)slot=null;
+    return {record:current.record,state:state.state,error:state.error};
+  }
+  async function discard() {
+    const current=slot;if(!current)return;
+    await ensure(current);
+    if(current.syncing)await current.syncing;
+    await request(base(current)+'/stop',{method:'POST',headers:headers(current)});
+    if(current.syncing)await current.syncing.catch(()=>{});
+    await remove(current.record.id);
+    await cleanup(base(current),current);
+    if(slot===current)slot=null;
+    return {id:current.record.id};
   }
   return {
-    close: () => discard(true),
-    call: async (method, args, report) => {
-      if (method === 'config') return request('/api/live/config', {headers: {Authorization: 'Bearer ' + catalogToken}});
-      if (method === 'start') return start(args);
-      if (method === 'status') {
-        if (!slot) throw new Error('取得セッションがありません');
-        if (!slot.id) return start(slot.options);
-        return request(base(slot), {headers: headers(slot)});
+    owns:id=>slot?.record?.id===id,
+    query:async(id,operation,payload,signal)=>{
+      const current=slot;
+      if(!current || current.record?.id!==id)throw new Error('取得ファイルが見つかりません');
+      if(!current.id || !current.offset) {
+        if(operation==='packets')return empty();
+        throw new Error('パケットを受信していません');
       }
-      if (method === 'save') return save(report);
-      if (method === 'discard') return discard();
+      return remote(base(current)+'/query',{method:'POST',headers:{...headers(current),'Content-Type':'application/json'},
+        body:JSON.stringify({operation,payload:{...payload,through:current.offset}}),signal});
+    },
+    close:async()=>{
+      const current=slot;if(!current)return;
+      // Keep the committed prefix when the page is closed, never discard the file.
+      if(current.record)await mark(current.record.id,'interrupted').catch(()=>{});
+      if(current.id)await cleanup(base(current),current);
+    },
+    call:async(method,args)=>{
+      if(method==='config')return request('/api/live/config',{headers:{Authorization:'Bearer '+catalogToken}});
+      if(method==='start')return start(args);
+      if(method==='sync')return sync();
+      if(method==='save')return finalize();
+      if(method==='discard')return discard();
       throw new Error('未対応のキャプチャ操作です');
     },
   };

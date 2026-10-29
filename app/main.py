@@ -9,7 +9,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from .capture_proxy import router as capture_router
+from .capture_api import router as capture_router
+from .live_capture import Captures, CaptureError
 from .filters import FilterError, parse_filter_groups
 from .instances import CAPABILITY, CapacityError, Instances, MissingInstance
 
@@ -56,9 +57,11 @@ def create_app(runtime_dir: Path | None = None, idle_seconds: float | None = Non
             runtime_dir or Path(os.getenv('ANALYSIS_RUNTIME_DIR', '/tmp')),
             idle_seconds if idle_seconds is not None else float(os.getenv('ANALYSIS_IDLE_SECONDS', '900')),
             int(os.getenv('MAX_ANALYSIS_INSTANCES', '32')))
+        application.state.captures = Captures(runtime_dir)
         try:
             yield
         finally:
+            await asyncio.to_thread(application.state.captures.close)
             await asyncio.to_thread(application.state.instances.close)
 
     app = FastAPI(title='Packet Capture Workbench', version='0.5.0', lifespan=lifespan)
@@ -83,6 +86,10 @@ def create_app(runtime_dir: Path | None = None, idle_seconds: float | None = Non
     @app.exception_handler(MissingInstance)
     async def missing(_request, _error):
         return JSONResponse({'detail': '解析インスタンスまたは処理が見つかりません'}, status_code=404)
+
+    @app.exception_handler(CaptureError)
+    async def capture_error(_request, error):
+        return JSONResponse({'detail': str(error)}, status_code=422)
 
     @app.exception_handler(CapacityError)
     async def full(_request, error):

@@ -147,8 +147,49 @@ async function query(localId,operation,payload,signal,report) {
   }
   throw new Error('解析インスタンスを開き直せませんでした');
 }
+// An empty PCAPNG section is a valid file even before the first packet arrives.
+const emptySection = new Uint8Array([10,13,13,10,28,0,0,0,77,60,43,26,1,0,0,0,255,255,255,255,255,255,255,255,28,0,0,0]);
+async function createLive(network) {
+  const now=new Date().toISOString();
+  const record={id:random(16),filename:'capture-'+network.replace(/[^a-zA-Z0-9_.-]/g,'_')+'-'+now.replace(/[:.]/g,'-')+'.pcapng',
+    format:'pcapng',size:emptySection.length,received:0,added:now,phase:'recording'};
+  await transaction(['captures','files'],'readwrite',tx=>{
+    tx.objectStore('captures').add(record);tx.objectStore('files').add(new Blob([emptySection]),record.id);
+  });
+  return record;
+}
+async function updateLive(id,chunk,offset,phase) {
+  const connection=await db();
+  return new Promise((resolve,reject)=>{
+    const tx=connection.transaction(['captures','files'],'readwrite');
+    const meta=tx.objectStore('captures').get(id), file=tx.objectStore('files').get(id);
+    let done=0,record,failure;
+    function write() {
+      if(++done!==2)return;
+      record=meta.result;
+      if(!record || !file.result){failure=new Error('ローカルファイルは削除されています');tx.abort();return;}
+      if(chunk) {
+        if(record.received!==offset){failure=new Error('保存先の取得位置が一致しません');tx.abort();return;}
+        const blob=new Blob(offset?[file.result,chunk]:[chunk],{type:'application/octet-stream'});
+        record={...record,size:blob.size,received:offset+chunk.size,phase:'recording'};
+        tx.objectStore('files').put(blob,id);
+      }
+      if(phase)record={...record,phase};
+      tx.objectStore('captures').put(record);
+    }
+    meta.onsuccess=write;file.onsuccess=write;
+    tx.oncomplete=()=>resolve(record);
+    tx.onabort=()=>reject(failure || new Error('ブラウザに保存できません。空き容量を確認してください'));
+    tx.onerror=()=>{};
+  });
+}
+async function removeLocal(id) {
+  await transaction(['captures','files'],'readwrite',tx=>{tx.objectStore('captures').delete(id);tx.objectStore('files').delete(id);});
+}
 importScripts('/static/app/live.worker.js');
-const liveCapture = self.createLiveCapture({remote, store, random, cleanup});
+const liveCapture = self.createLiveCapture({remote,random,cleanup,create:createLive,
+  append:(id,chunk,offset)=>updateLive(id,chunk,offset),mark:(id,phase)=>updateLive(id,null,0,phase),
+  remove:removeLocal,notify:event=>self.postMessage({event:'live',...event})});
 self.onmessage=async event=>{
   const {id,method,args}=event.data;
   if(method==='cancel'){requests.get(id)?.abort();return;}
@@ -163,11 +204,14 @@ self.onmessage=async event=>{
     else if(method==='import') result=await store(args.file,report);
     else if(method==='close') result=await close(args.id);
     else if(method==='remove') {
+      if(liveCapture.owns(args.id))throw new Error('キャプチャを停止してから削除してください');
       await close(args.id);
       await transaction(['captures','files'],'readwrite',tx=>{
         tx.objectStore('captures').delete(args.id);tx.objectStore('files').delete(args.id);
       });
-    } else if(method==='query') result=await query(args.id,args.operation,args.payload,controller.signal,report);
+    } else if(method==='query') result=liveCapture.owns(args.id)
+      ? await liveCapture.query(args.id,args.operation,args.payload,controller.signal)
+      : await query(args.id,args.operation,args.payload,controller.signal,report);
     else throw new Error('未対応の操作です');
     if(!controller.signal.aborted)self.postMessage({id,result});
   } catch(error) {

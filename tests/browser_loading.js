@@ -71,6 +71,8 @@ const path = require('node:path');
     assert.equal(await page.locator('#packet-details').getAttribute('aria-busy'),'true');
     // Details load independently; the packet list is still usable.
     assert.equal(await page.locator('#packet-scroll').evaluate(node=>node.inert),false);
+    assert.equal(await busy('detail').locator('.skeleton-frame').isVisible(),true);
+    assert.equal(await busy('detail').locator('.loading-spinner').isVisible(),false);
     await shot('detail');slow.release();await ready(3);
 
     // A cancelled older selection must not hide the current selection's spinner.
