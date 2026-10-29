@@ -56,15 +56,18 @@ def _field_args() -> list[str]:
 
 def decoded_rows(path: Path) -> list[dict]:
     content = run_tshark(['-r',str(path),*_field_args()])
-    rows = []
-    for values in csv.reader(io.StringIO(content),delimiter='\t',quotechar='"'):
-        if len(values) < len(DISPLAY_FIELDS) or not values[0].strip().isdigit():
-            continue
-        extra = {field:values[index] for index,field in enumerate(CONTEXT_FIELDS,start=len(DISPLAY_FIELDS)) if len(values)>index and values[index]}
-        rows.append({'number':int(values[0]),'time':values[1],'source':values[2],'destination':values[3],
+    return [row for values in csv.reader(io.StringIO(content),delimiter='\t',quotechar='"')
+            if (row := row_from_values(values)) is not None]
+
+
+def row_from_values(values: list[str]) -> dict | None:
+    if len(values) < len(DISPLAY_FIELDS) or not values[0].strip().isdigit():
+        return None
+    extra = {field:values[index] for index,field in enumerate(CONTEXT_FIELDS,start=len(DISPLAY_FIELDS))
+             if len(values)>index and values[index]}
+    return {'number':int(values[0]),'time':values[1],'source':values[2],'destination':values[3],
             'protocol':values[4],'length':int(values[5]) if values[5].isdigit() else values[5],
-            'info':values[6],'fields':extra})
-    return rows
+            'info':values[6],'fields':extra}
 
 
 def matching_frame_numbers(path: Path, expression: str) -> frozenset[int]:
@@ -75,9 +78,12 @@ def matching_frame_numbers(path: Path, expression: str) -> frozenset[int]:
 
 
 def packet_list(path: Path, raw_expression: str = '', groups: FilterGroups = (), context: int = 0) -> dict:
+    return project_rows(decoded_rows(path), path, raw_expression, groups, context)
+
+
+def project_rows(rows: list[dict], path: Path, raw_expression: str = '', groups: FilterGroups = (), context: int = 0) -> dict:
     if not 0 <= context <= MAX_CONTEXT:
         raise DissectionError('前後表示は0〜50件で指定してください')
-    rows = decoded_rows(path)
     all_numbers = frozenset(row['number'] for row in rows)
     filtered = bool(raw_expression or groups)
     if not filtered:

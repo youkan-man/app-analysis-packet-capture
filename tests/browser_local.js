@@ -94,7 +94,7 @@ const {execFileSync}=require('node:child_process');
     assert.equal(await pageA.locator('.capture-item').count(),1);
 
     // Actual Docker restart: neither browser's persistent source disappears.
-    execFileSync('docker',['restart','packet-workbench-ci'],{stdio:'pipe'});
+    execFileSync('docker',['restart',process.env.PCANA_CONTAINER || 'packet-workbench-ci'],{stdio:'pipe'});
     await eventually(async()=>{try{return(await a.request.get(origin+'/healthz')).ok();}catch{return false;}});
     await pageA.locator('#refresh').click();await ready(pageA,7);
     await pageB.locator('#refresh').click();await ready(pageB,10);

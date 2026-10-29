@@ -36,7 +36,7 @@ const path = require('node:path');
     });
     assert(metrics.list.height>metrics.details.height);
     assert.equal(metrics.header.height,44);
-    assert.equal(metrics.stylesheetCount,1);
+    assert.equal(metrics.stylesheetCount,2);
     await field('ip.src').click();
     await shot('overview');
     await field('ip.src').click({button:'right'});

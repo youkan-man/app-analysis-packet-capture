@@ -1,4 +1,4 @@
-"""Bounded, capability-owned dumpcap sessions. Only the capture sidecar imports this.
+"""Bounded, capability-owned dumpcap sessions. Integrated into the application lifecycle.
 
 Native interfaces only: no remote capture URLs, pipes, shell, or extcap helpers.
 Capture files are transient; the browser acknowledges them only after local commit.
@@ -22,6 +22,7 @@ import time
 import uuid
 
 from .instances import MissingInstance, CapacityError
+from .live_stream import LiveStream
 
 
 class CaptureError(ValueError):
@@ -32,10 +33,10 @@ class CaptureError(ValueError):
 class Options:
     interface: str
     expression: str
-    duration: int
-    size_mib: int
-    packets: int
-    snaplen: int
+    duration: int | None
+    size_mib: int | None
+    packets: int | None
+    snaplen: int | None
 
 
 def options(value: object, interfaces: set[str]) -> Options:
@@ -46,7 +47,7 @@ def options(value: object, interfaces: set[str]) -> Options:
         raise CaptureError('取得条件が不正です')
     interface = value.get('interface')
     if not isinstance(interface, str) or interface not in interfaces:
-        raise CaptureError('利用可能なインターフェースを選択してください')
+        raise CaptureError('選択したネットワークが見つかりません。更新して選び直してください')
     protocol = value.get('protocol', 'any')
     direction = value.get('direction', 'any')
     if protocol not in ('any', 'tcp', 'udp', 'icmp', 'arp') or direction not in ('any', 'src', 'dst'):
@@ -74,13 +75,14 @@ def options(value: object, interfaces: set[str]) -> Options:
         raise CaptureError('取得フィルターは1024文字以内で指定してください')
     if raw.strip():
         parts.append(raw.strip())
-    limits = {'duration': (1, 3600, 60), 'size_mib': (1, 64, 32),
-              'packets': (1, 1000000, 100000), 'snaplen': (64, 262144, 262144)}
+    # Validation bounds are not preconfigured capture conditions. Blank is unset.
+    limits = {'duration': (1, 3600, '自動停止'), 'size_mib': (1, 64, '容量上限'),
+              'packets': (1, 1000000, 'パケット数上限'), 'snaplen': (64, 262144, '取得長')}
     numbers = {}
-    for name, (low, high, default) in limits.items():
-        number = value.get(name, default)
-        if type(number) is not int or not low <= number <= high:
-            raise CaptureError(f'{name} は {low}〜{high} で指定してください')
+    for name, (low, high, label) in limits.items():
+        number = value.get(name)
+        if number is not None and (type(number) is not int or not low <= number <= high):
+            raise CaptureError(f'{label}は{low}〜{high}で指定してください')
         numbers[name] = number
     return Options(interface=interface, expression=' and '.join(f'({p})' for p in parts), **numbers)
 
@@ -89,18 +91,17 @@ def interfaces() -> list[dict]:
     """Do not accept anything outside the host's native interface name set."""
     executable = os.getenv('DUMPCAP_BIN', 'dumpcap')
     native = {name for _, name in socket.if_nameindex()} | {'any'}
-    allowed = {v.strip() for v in os.getenv('CAPTURE_INTERFACES', '').split(',') if v.strip()}
     try:
         result = subprocess.run([executable, '-D'], capture_output=True, text=True, timeout=5,
                                 stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise CaptureError('取得サービスでdumpcapを実行できません') from exc
+        raise CaptureError('ネットワークの取得を開始できません') from exc
     if result.returncode:
-        raise CaptureError('インターフェースを取得できません。取得サービスの権限を確認してください')
+        raise CaptureError('利用可能なネットワークを確認できません')
     items = []
     for line in result.stdout.splitlines():
         match = re.fullmatch(r'\d+\. (\S+)(?: \((.*)\))?', line.strip())
-        if match and match[1] in native and (not allowed or match[1] in allowed):
+        if match and match[1] in native:
             items.append({'name': match[1], 'label': match[1] + (f' — {match[2]}' if match[2] else '')})
     return items
 
@@ -121,6 +122,7 @@ class Session:
         self.closed = False
         self.touched = time.monotonic()
         self.error = ''
+        self.stream = None
 
     def authenticates(self, token: str) -> bool:
         return hmac.compare_digest(self.digest, hashlib.sha256(token.encode()).digest())
@@ -128,17 +130,24 @@ class Session:
     def start(self):
         cfg = self.options
         command = [os.getenv('DUMPCAP_BIN', 'dumpcap'), '-q', '-n', '-p', '-i', cfg.interface,
-                   '-s', str(cfg.snaplen), '-a', f'duration:{cfg.duration}',
-                   '-a', f'filesize:{cfg.size_mib * 1024}', '-c', str(cfg.packets),
                    '-w', str(self.path)]
+        if cfg.snaplen is not None:
+            command += ['-s', str(cfg.snaplen)]
+        if cfg.duration is not None:
+            command += ['-a', f'duration:{cfg.duration}']
+        if cfg.size_mib is not None:
+            command += ['-a', f'filesize:{cfg.size_mib * 1024}']
+        if cfg.packets is not None:
+            command += ['-c', str(cfg.packets)]
         if cfg.expression:
             command += ['-f', cfg.expression]
         try:
             with self.log.open('wb') as log:
                 self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
+            self.stream = LiveStream(self.path, self.root, self.process)
         except OSError as exc:
-            raise CaptureError('dumpcapを開始できません。取得サービスを確認してください') from exc
+            raise CaptureError('選択したネットワークで取得を開始できません') from exc
 
     def status(self) -> dict:
         with self.lock:
@@ -151,12 +160,14 @@ class Session:
             else:
                 state = 'complete' if (code == 0 or (self.stopped and code == -signal.SIGINT)) and size >= 28 else 'failed'
                 if state == 'failed' and not self.error:
-                    # Bound and scrub the diagnostic; never publish runtime paths.
-                    text = self.log.read_bytes()[-2048:].decode('utf-8', 'replace') if self.log.exists() else ''
-                    text = text.replace(str(self.root), '<capture>')
-                    self.error = ('取得に失敗しました。権限・インターフェース・取得フィルターを確認してください。 ' + text.strip())[:900]
+                    self.error = '取得を継続できません。ネットワークと取得条件を確認してください'
+                if state == 'complete' and self.stream and not self.stream.done.is_set():
+                    state = 'finishing'
+                if self.stream and self.stream.error:
+                    state = 'failed'
+                    self.error = self.stream.error
             return {'id': self.id, 'state': state, 'interface': self.options.interface,
-                    'bytes': size, 'filter': self.options.expression, 'error': self.error}
+                    'bytes': self.stream.boundaries[-1] if self.stream else 0, 'filter': self.options.expression, 'error': self.error}
 
     def stop(self) -> dict:
         with self.lock:
@@ -173,6 +184,8 @@ class Session:
                     self.process.kill()
                     self.process.wait(timeout=3)
                     self.error = '取得プロセスが停止に応答しませんでした。データは確定していません'
+            if self.stream:
+                self.stream.done.wait(timeout=12)
             return self.status()
 
     def read(self):
@@ -190,6 +203,8 @@ class Session:
                 self.stop()
             finally:
                 self.closed = True
+                if self.stream:
+                    self.stream.close()
                 shutil.rmtree(self.root, ignore_errors=True)
 
 

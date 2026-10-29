@@ -25,7 +25,11 @@
     const message = A.el('span', 'loading-message');
     message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
     const context = A.el('span', 'loading-context');
-    mask.append(spinner, message, context); wrapper.append(mask);
+    const skeleton=A.el('div','skeleton-frame skeleton-'+scope);
+    skeleton.setAttribute('aria-hidden','true');
+    for(let i=0;i<10;i++)skeleton.append(A.el('span','skeleton-line'));
+    if(scope!=='packets')mask.classList.add('is-skeleton');
+    mask.append(skeleton,spinner,message,context); wrapper.append(mask);
     const view = {target, wrapper, mask, message, context};
     surfaces.set(target, view); return view;
   }

@@ -17,3 +17,27 @@
 #open-live.is-recording {color:var(--danger);border-color:var(--danger);background:#fdf4f3}
 #open-live.is-recording::before {content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
 @media(prefers-reduced-motion:reduce) {.live-status.is-busy::before {animation:none}}
+
+#live-form {position:relative}
+.live-config-skeleton.skeleton-frame {position:absolute;inset:10px 10px 48px;z-index:2;display:flex;flex-direction:column;gap:22px;background:var(--panel);padding:8px 0}
+.is-config-loading #live-options {visibility:hidden}
+.is-config-loading #live-status {height:0;min-height:0;padding:0;overflow:hidden}
+.live-config-skeleton span {height:26px;width:100%}
+
+/* Loading placeholders occupy the same small-pane geometry as the arriving data. */
+.skeleton-frame {display:none}
+.is-skeleton .skeleton-frame {display:flex;flex-direction:column;align-self:stretch;gap:10px;padding:5px 2px}
+.is-skeleton .loading-spinner {display:none}
+.is-skeleton .loading-message,.is-skeleton .loading-context {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.loading-mask.is-skeleton {justify-content:flex-start;align-items:stretch;background:var(--panel);padding:12px;pointer-events:none}
+.skeleton-frame span {display:block;flex:none;height:12px;border-radius:2px;background:linear-gradient(90deg,#e8edf2 25%,#f6f8fa 48%,#e8edf2 75%);background-size:200% 100%;animation:skeleton-wave 1.5s linear infinite;width:88%}
+.skeleton-frame span:nth-child(3n) {width:62%;margin-left:12px}
+.skeleton-frame span:nth-child(3n+1) {width:94%}
+.bytes-panel .skeleton-frame span {width:97%;margin-left:0;height:14px}
+.skeleton-compare span {width:100%;height:20px}
+.loading-surface[data-loading-state=error] .skeleton-frame {display:none}
+.loading-surface[data-loading-state=error] .loading-message {position:static;width:auto;height:auto;clip-path:none}
+.loading-surface[data-loading-state=error] .loading-context {display:none}
+.capture-item.is-capturing .capture-open strong::before {content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--danger);margin-right:5px}
+@keyframes skeleton-wave {to {background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce) {.skeleton-frame span {animation:none}}
