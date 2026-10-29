@@ -3,7 +3,7 @@
   'use strict';
   const A = window.PacketApp, {$} = A;
   let active = false, busy = false, timer = null, config = null, opener = null, savedOptions = null;
-  let activity = 'idle';
+  let activity = 'idle', refreshTimer = null, catalogRequest = 0, refreshing = false;
   const dialog = $('live-dialog');
   const messages = {capture_stop: '取得を停止中…', capture_download: '取得データを受信中…',
     validating: '取得データを確認中…', saving: 'ブラウザに保存中…'};
@@ -15,7 +15,7 @@
   function controls() {
     $('live-options').disabled = active || busy || !config?.enabled || !config.interfaces.length;
     $('live-start').hidden = active;
-    $('live-start').disabled = busy || !config?.enabled || !config.interfaces.length;
+    $('live-start').disabled = busy || !config?.enabled || !config.interfaces.length || !$('live-interface').value;
     $('live-save').hidden = !active;
     $('live-save').disabled = busy || activity === 'failed';
     $('live-discard').hidden = !active;
@@ -29,18 +29,38 @@
     $('open-live').textContent = active || (busy && activity !== 'idle') ? labels[activity] || '取得確認' : 'キャプチャ';
     $('open-live').setAttribute('aria-expanded', String(dialog.open));
   }
-  async function configure() {
-    if (active || busy) return;
-    busy = true; controls(); message('インターフェースを取得中…');
+  function scheduleCatalog() {
+    clearTimeout(refreshTimer);
+    if (dialog.open && !active && !busy) refreshTimer = setTimeout(() => configure(true), 4000);
+  }
+  async function configure(background = false) {
+    if (active || busy || refreshing) return;
+    const request = ++catalogRequest;
+    refreshing = true;
+    if (!background) {busy = true; controls(); message('ネットワークを確認中…');}
     try {
-      config = await A.local.live('config');
-      const select = $('live-interface'); select.replaceChildren();
-      for (const item of config.interfaces) {
-        const option = document.createElement('option'); option.value = item.name; option.textContent = item.label; select.append(option);
+      const result = await A.local.live('config');
+      if (request !== catalogRequest || active) return;
+      config = result;
+      const select = $('live-interface'), selected = select.value;
+      const next = JSON.stringify(config.interfaces);
+      // Do not recreate an unchanged select while the operator is interacting with it.
+      if (select.dataset.catalog !== next) {
+        select.replaceChildren(new Option('選択してください', ''));
+        for (const item of config.interfaces) select.add(new Option(item.label, item.name));
+        select.value = config.interfaces.some(item => item.name === selected) ? selected : '';
+        select.dataset.catalog = next;
       }
-      message(config.enabled ? (config.interfaces.length ? '' : '利用可能なインターフェースがありません') : config.reason, !config.enabled);
-    } catch (error) {config = null; message(error.message, true);}
-    finally {busy = false; controls();}
+      if (!config.enabled) message(config.reason, true);
+      else if (selected && !select.value) message('選択したネットワークが見つかりません。選び直してください', true);
+      else if (!background) message('');
+    } catch (error) {
+      if (request === catalogRequest) {config = null; message(error.message, true);}
+    } finally {
+      refreshing = false;
+      if (!background) busy = false;
+      controls(); scheduleCatalog();
+    }
   }
   let stylesReady = null;
   async function show() {
@@ -67,15 +87,17 @@
     } catch (error) {activity = 'unknown'; controls(); message(error.message, true);}
     schedule();
   }
+  const number = id => $(id).value ? Number($(id).value) : null;
   function readOptions() {
     return {interface: $('live-interface').value, protocol: $('live-protocol').value,
       host: $('live-host').value.trim(), direction: $('live-direction').value,
       port: $('live-port').value ? Number($('live-port').value) : null,
-      duration: Number($('live-duration').value), size_mib: Number($('live-size').value),
-      packets: Number($('live-packets').value), snaplen: Number($('live-snaplen').value), bpf: $('live-bpf').value.trim()};
+      duration: number('live-duration'), size_mib: number('live-size'),
+      packets: number('live-packets'), snaplen: number('live-snaplen'), bpf: $('live-bpf').value.trim()};
   }
   async function start(event) {
     event.preventDefault(); if (busy || active || !$('live-form').reportValidity()) return;
+    clearTimeout(refreshTimer); catalogRequest++;
     savedOptions = readOptions(); activity = 'starting'; busy = true; controls(); message('取得を開始中…');
     try {
       const result = await A.local.live('start', savedOptions);
@@ -109,16 +131,17 @@
     clearTimeout(timer); busy = true; controls(); message('取得を終了中…');
     try {await A.local.live('discard'); active = false; activity = 'idle'; savedOptions = null; message('取得データを破棄しました'); A.status('取得データを破棄しました');}
     catch (error) {message(error.message, true);}
-    finally {busy = false; $('live-save').textContent = '停止して保存'; controls();}
+    finally {busy = false; $('live-save').textContent = '停止して保存'; controls(); scheduleCatalog();}
   }
   $('open-live').addEventListener('click', show);
   $('live-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('keydown', event => {if (event.key === 'Escape') event.stopPropagation();});
-  dialog.addEventListener('close', () => {controls(); opener?.focus({preventScroll: true});});
+  dialog.addEventListener('close', () => {clearTimeout(refreshTimer); controls(); opener?.focus({preventScroll: true});});
   $('live-form').addEventListener('submit', start);
-  $('live-reload').addEventListener('click', configure);
+  $('live-reload').addEventListener('click', () => configure());
+  $('live-interface').addEventListener('change', controls);
   $('live-save').addEventListener('click', finish);
   $('live-discard').addEventListener('click', discard);
-  window.addEventListener('beforeunload', event => {if (active) {event.preventDefault(); event.returnValue = '';}});
+  window.addEventListener('beforeunload', event => {if (active) {event.preventDefault(); event.returnValue = '';} });
   controls();
 })();

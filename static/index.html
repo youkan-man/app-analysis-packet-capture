@@ -114,23 +114,22 @@
     <div class="drawer-head"><strong id="live-title">パケットキャプチャ</strong><button type="button" class="icon-button" id="live-close" aria-label="キャプチャ設定を閉じる">×</button></div>
     <form id="live-form">
       <fieldset id="live-options" class="live-options">
-        <label class="live-wide">取得元<input value="Dockerホスト" readonly></label>
-        <label class="live-wide">インターフェース<select id="live-interface" required></select></label>
+        <label class="live-wide">ネットワーク<select id="live-interface" required></select></label>
         <label>プロトコル<select id="live-protocol"><option value="any">すべて</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP / ICMPv6</option><option value="arp">ARP</option></select></label>
         <label>ポート<input id="live-port" type="number" min="1" max="65535" placeholder="すべて"></label>
         <label>IPアドレス<input id="live-host" placeholder="すべて" autocomplete="off" spellcheck="false"></label>
         <label>IPの方向<select id="live-direction"><option value="any">送信・受信</option><option value="src">送信元</option><option value="dst">宛先</option></select></label>
-        <label>自動停止（秒）<input id="live-duration" type="number" min="1" max="3600" value="60" required></label>
-        <label>容量上限（MiB）<input id="live-size" type="number" min="1" max="64" value="32" required></label>
+        <label>自動停止（秒）<input id="live-duration" type="number" min="1" max="3600" placeholder="指定なし"></label>
+        <label>容量上限（MiB）<input id="live-size" type="number" min="1" max="64" placeholder="指定なし"></label>
         <details class="live-wide live-advanced"><summary>詳細条件</summary><div class="live-options">
-          <label>パケット数上限<input id="live-packets" type="number" min="1" max="1000000" value="100000" required></label>
-          <label>取得長（バイト）<input id="live-snaplen" type="number" min="64" max="262144" value="262144" required></label>
+          <label>パケット数上限<input id="live-packets" type="number" min="1" max="1000000" placeholder="指定なし"></label>
+          <label>取得長（バイト）<input id="live-snaplen" type="number" min="64" max="262144" placeholder="指定なし"></label>
           <label class="live-wide">取得フィルター（BPF・任意）<input id="live-bpf" maxlength="1024" spellcheck="false" autocomplete="off"></label>
         </div></details>
       </fieldset>
       <div id="live-status" class="live-status" role="status" aria-live="polite"></div>
       <div class="live-actions">
-        <button id="live-reload" type="button" class="button">再確認</button>
+        <button id="live-reload" type="button" class="button">更新</button>
         <button id="live-discard" type="button" class="button button-quiet" hidden>破棄</button>
         <button id="live-start" type="submit" class="button button-primary">開始</button>
         <button id="live-save" type="button" class="button button-primary" hidden>停止して保存</button>

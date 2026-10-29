@@ -1,9 +1,10 @@
-/* Actual Linux host loopback -> dumpcap sidecar -> browser IndexedDB -> TShark.
+/* Standard one-service deployment: host loopback -> browser IndexedDB -> TShark.
  * Only the CI UDP fixture's port is captured. No external traffic or mocked packets.
  */
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const {execFileSync} = require('node:child_process');
 (async () => {
   const browser = await chromium.launch({headless: true});
   const a = await browser.newContext({viewport: {width: 1440, height: 900}});
@@ -19,14 +20,19 @@ const fs = require('node:fs');
     }
   });
   const origin = 'http://127.0.0.1:18080';
-  const shot = name => page.screenshot({path: 'artifacts/capture-' + name + '.png'});
+  const shot = async name => {
+    assert.doesNotMatch(await page.locator('#live-dialog').textContent(), /compose|docker|capture-agent|dumpcap|NET_RAW|sidecar/i);
+    return page.screenshot({path: 'artifacts/capture-' + name + '.png'});
+  };
+  const ip = (...args) => execFileSync('sudo', ['ip', ...args], {stdio:'pipe'});
+  let adapterCreated = false;
   async function eventually(fn) {
     for (let i=0;i<150;i++) {if (await fn()) return; await new Promise(resolve => setTimeout(resolve,100));}
     throw new Error('Capture state transition did not occur');
   }
   async function configure(port=49321) {
     await page.locator('#open-live').click();
-    await page.waitForFunction(() => document.querySelector('#live-start').disabled === false);
+    await page.waitForFunction(() => [...document.querySelector('#live-interface').options].some(o => o.value === 'lo') && !document.querySelector('#live-options').disabled);
     await page.locator('#live-interface').selectOption('lo');
     await page.locator('#live-protocol').selectOption('udp');
     await page.locator('#live-host').fill('127.0.0.1');
@@ -46,6 +52,9 @@ const fs = require('node:fs');
     await page.goto(origin, {waitUntil: 'networkidle'});
     await other.goto(origin, {waitUntil: 'networkidle'});
     await configure();
+    for (const id of ['live-duration','live-size','live-packets','live-snaplen']) {
+      if (id !== 'live-duration') assert.equal(await page.locator('#'+id).inputValue(),'');
+    }
     await shot('setup');
     await page.locator('#live-start').click();
     await eventually(() => sessions.length === 1);
@@ -113,22 +122,44 @@ const fs = require('node:fs');
     const box=await page.locator('#live-dialog').boundingBox();
     assert(box.x>=0 && box.x+box.width<=391 && box.y>=0 && box.y+box.height<=844);
     await shot('mobile');
-    // Real default deployment has no capture privileges and presents an actionable state.
+    // Add/remove a real host adapter AFTER startup. No config file or restart.
+    await page.locator('#live-close').click();
+    await page.setViewportSize({width:1440,height:900});
+    await configure();
+    assert.equal(await page.locator('#live-interface option[value="pcana-ci0"]').count(),0);
+    ip('link','add','pcana-ci0','type','dummy'); adapterCreated = true;
+    ip('link','set','pcana-ci0','up');
+    await page.waitForFunction(() => [...document.querySelector('#live-interface').options].some(o=>o.value==='pcana-ci0'));
+    await page.locator('#live-interface').selectOption('pcana-ci0');
+    await page.locator('#live-port').fill('49322');
+    await page.locator('#live-reload').click();
+    await page.waitForFunction(()=>!document.querySelector('#live-options').disabled);
+    assert.equal(await page.locator('#live-interface').inputValue(),'pcana-ci0');
+    assert.equal(await page.locator('#live-port').inputValue(),'49322');
+    await shot('dynamic-network');
+    ip('link','del','pcana-ci0'); adapterCreated = false;
+    await page.waitForFunction(() => ![...document.querySelector('#live-interface').options].some(o=>o.value==='pcana-ci0'));
+    assert.equal(await page.locator('#live-interface').inputValue(),'');
+    assert.equal(await page.locator('#live-start').isDisabled(),true);
+    await shot('network-removed');
+    await page.locator('#live-interface').selectOption('lo');
+    assert.equal(await page.locator('#live-start').isEnabled(),true);
+    await page.locator('#live-close').click();
+    // Capability-less container is a negative test, not a second product configuration.
     const disabled=await a.newPage();await disabled.goto('http://127.0.0.1:18082/',{waitUntil:'networkidle'});
     await disabled.locator('#open-live').click();
     await disabled.locator('#live-status.is-error').waitFor();
     assert.equal(await disabled.locator('#live-start').isDisabled(),true);
     assert.equal(await disabled.locator('#live-options').evaluate(node => node.disabled),true);
-    for (const id of ['live-interface','live-protocol','live-port','live-host']) {
-      assert.equal(await disabled.locator('#' + id).isDisabled(),true);
-    }
-    await disabled.screenshot({path:'artifacts/capture-disabled.png'});
+    assert.doesNotMatch(await disabled.locator('#live-dialog').textContent(), /compose|docker|capture-agent|dumpcap|NET_RAW/i);
+    await disabled.screenshot({path:'artifacts/capture-unavailable.png'});
     assert.deepEqual(errors,[]);
     fs.writeFileSync('artifacts/live-capture-checks.json',JSON.stringify({
-      realDumpcap:true,hostLoopbackOnly:true,manualStop:true,packetLimit:true,
+      realDumpcap:true,singleService:true,dynamicAdapterAdded:true,dynamicAdapterRemoved:true,
+      noStaticCaptureConditions:true,noDeploymentJargon:true,hostLoopbackOnly:true,manualStop:true,packetLimit:true,
       indexedDB:true,reload:true,foreignRead:404,foreignStop:404,foreignDelete:404,
-      discardedNotSaved:true,invalidBpf:true,mobile:true,defaultDisabled:true,errors},null,2));
+      discardedNotSaved:true,invalidBpf:true,mobile:true,unavailableHandled:true,errors},null,2));
     console.log('Live capture passed: actual host-loopback UDP, private sessions, browser save and TShark inspection');
   } catch(error) {await shot('failure').catch(()=>{});throw error;}
-  finally {await browser.close();}
+  finally {if(adapterCreated) {try {ip('link','del','pcana-ci0');} catch {}} await browser.close();}
 })().catch(error=>{console.error(error);process.exit(1);});
