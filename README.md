@@ -10,8 +10,9 @@ docker compose up --build -d
 
 Open `http://127.0.0.1:8080`. The single service includes capture; no secondary
 Compose file, helper service, socket volume or statically registered interfaces
-are used. Available native networks are discovered when the capture dialog opens
-and checked again on start. The default deployment uses the Linux host network.
+are used. Available native networks are discovered when the capture dialog opens,
+refreshed while it remains open, and checked again on start. Blank stop limits and
+snapshot length mean unspecified; no fixed acquisition conditions are inserted. The default deployment uses the Linux host network.
 The web application runs as UID 10001. Only the dumpcap executable has the
 `cap_net_raw` file capability; the container's capability bounding set allows it.
 Do not add `no-new-privileges` to this deployment: it prevents the nonroot capture
@@ -79,6 +80,6 @@ node tests/live_worker_contract.js
 ```
 
 Old deployments can update with `git pull --ff-only` and the single Compose command
-above. Stop/remove the previously deployed helper container when upgrading; its
+above (add `--remove-orphans` when upgrading from the old split deployment). Its
 old socket volume is unused. No existing volume is deleted automatically. Original
 browser files and saved settings are not migrated or cleared.

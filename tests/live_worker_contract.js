@@ -29,5 +29,14 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
   assert.equal(offset,28);assert.equal(number,1);
   const final=await live.call('save',{});assert.equal(final.record.id,'local');
   assert.equal(events.filter(e=>e==='delete').length,1);assert.equal(live.owns('local'),false);
+  let started=0;
+  const denied=ctx.self.createLiveCapture({
+    random:()=> 'a'.repeat(64),create:async()=>{throw new Error('quota');},
+    notify:()=>{},append:async()=>{},mark:async()=>{},remove:async()=>{},cleanup:async()=>{},
+    remote:async()=>{started++;return{id:'must-not-start'};},
+  });
+  await assert.rejects(denied.call('start',{interface:'lo'}),error=>error.message==='quota'&&error.capturePending===false);
+  await assert.rejects(denied.call('sync',{}),/取得セッション/);
+  assert.equal(started,0);
   console.log('Live file creation, append commit and failure retry ownership passed');
 })().catch(error=>{console.error(error);process.exit(1);});

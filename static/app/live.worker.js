@@ -33,12 +33,17 @@ self.createLiveCapture = ({remote, random, cleanup, create, append, mark, remove
     })();
     try {return await current.starting;}
     catch(error) {
-      if(current.record) {current.record=await mark(current.record.id,'failed');notify({type:'failed',record:current.record,message:error.message});}
-      // A rejected request cannot have started dumpcap; a lost response may have.
-      if(error.status>=400 && error.status<500) slot=null;
+      const definitive=!current.record||(error.status>=400&&error.status<500);
+      if(definitive&&slot===current)slot=null;
+      if(current.record){
+        try{current.record=await mark(current.record.id,'failed');}catch{}
+        notify({type:'failed',record:current.record,message:error.message});
+      }
+      error.capturePending=!definitive;
       throw error;
     }
   }
+
   async function ensure(current) {
     if(current.id)return;
     // An uncertain POST is recovered with the same capability (idempotent server).

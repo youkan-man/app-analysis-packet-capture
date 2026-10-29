@@ -10,6 +10,9 @@ jobs:
   tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: pcana-ci
+      PORT: 18080
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install -r requirements.txt
-          python -m pip install pytest httpx
+          python -m pip install pytest httpx pyyaml
       - name: Check code and tests
         run: |
           python -m compileall -q app tests
@@ -38,12 +41,17 @@ jobs:
           pytest -q --junitxml=artifacts/pytest.xml
           node tests/live_worker_contract.js
           docker compose config -q
-      - name: Build Docker image
-        run: docker build -t packet-capture-workbench:ci .
-      - name: Container integration test
+      - name: Build and start the standard single-service application
         run: |
-          docker run --rm -d --name packet-workbench-ci --init --network host --read-only --cap-drop=ALL --cap-add=NET_RAW --tmpfs /tmp packet-capture-workbench:ci uvicorn app.main:app --host 127.0.0.1 --port 18080 --no-access-log
-          docker exec packet-workbench-ci sh -c 'test "$(id -u)" = 10001 && getcap /usr/bin/dumpcap'
+          docker compose up --build -d
+          container=$(docker compose ps -q packet-capture)
+          echo "PCANA_CONTAINER=$container" >> "$GITHUB_ENV"
+          test "$(docker compose ps -q | wc -l)" -eq 1
+          test "$(docker exec "$container" id -u)" = 10001
+          docker exec "$container" python -c "from pathlib import Path; s=Path('/proc/self/status').read_text(); assert int(s.split('CapEff:')[1].split()[0],16)==0"
+          image=$(docker inspect --format '{{.Image}}' "$container")
+          # Deliberately deny capture permission in one negative-test process.
+          docker run --rm -d --name pcana-unavailable-ci --init --network host --read-only --cap-drop=ALL --tmpfs /tmp -e UVICORN_PORT=18082 "$image"
           for i in $(seq 1 45); do
             if curl --fail --silent http://127.0.0.1:18080/healthz; then break; fi
             sleep 2
@@ -71,8 +79,10 @@ jobs:
       - name: Container logs and cleanup
         if: always()
         run: |
-          docker logs packet-workbench-ci > artifacts/server.log 2>&1 || true
-          docker stop packet-workbench-ci || true
+          docker compose logs --no-color > artifacts/server.log 2>&1 || true
+          docker compose down || true
+          docker stop pcana-unavailable-ci || true
+          sudo ip link del pcana-ci0 2>/dev/null || true
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4

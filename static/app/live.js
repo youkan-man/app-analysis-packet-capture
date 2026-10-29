@@ -2,8 +2,8 @@
 (() => {
   'use strict';
   const A=window.PacketApp, {$}=A, dialog=$('live-dialog');
-  let active=false,busy=false,timer=null,config=null,opener=null,record=null,configured=false;
-  let polling=false,closed=false;
+  let active=false,busy=false,timer=null,config=null,opener=null,record=null;
+  let polling=false,closed=false,refreshTimer=null,refreshing=false,catalogRequest=0;
   function message(text,error=false) {
     $('live-status').textContent=text;
     $('live-status').classList.toggle('is-error',error);
@@ -12,7 +12,7 @@
   function controls() {
     $('live-options').disabled=active||busy||!config?.interfaces.length;
     $('live-start').hidden=active;
-    $('live-start').disabled=busy||!config?.interfaces.length;
+    $('live-start').disabled=busy||!config?.interfaces.length||!$('live-interface').value;
     $('live-save').hidden=!active; $('live-save').disabled=busy;
     $('live-discard').hidden=!active; $('live-discard').disabled=busy;
     $('live-reload').hidden=active; $('live-reload').disabled=busy;
@@ -21,24 +21,37 @@
     $('open-live').textContent=active?'キャプチャ中':'キャプチャ';
     $('open-live').setAttribute('aria-expanded',String(dialog.open));
   }
-  async function configure() {
-    if(active||busy)return;
-    busy=true;controls();dialog.classList.add('is-config-loading');
-    $('live-config-skeleton').hidden=false;
-    message('ネットワークを確認中…');
+  function scheduleCatalog() {
+    clearTimeout(refreshTimer);
+    if(dialog.open&&!active&&!busy&&!closed)refreshTimer=setTimeout(()=>configure(true),4000);
+  }
+  async function configure(background=false) {
+    if(active||busy||refreshing)return;
+    const request=++catalogRequest;refreshing=true;
+    if(!background){
+      busy=true;controls();dialog.classList.add('is-config-loading');
+      $('live-config-skeleton').hidden=false;message('ネットワークを確認中…');
+    }
     try {
-      config=await A.local.live('config');
-      const select=$('live-interface'),previous=select.value;select.replaceChildren();
-      for(const item of config.interfaces){const option=A.el('option','',item.label);option.value=item.name;select.append(option);}
-      if(config.interfaces.some(item=>item.name===previous))select.value=previous;
-      if(!configured) {
-        for(const [name,id] of Object.entries({duration:'live-duration',size_mib:'live-size',packets:'live-packets',snaplen:'live-snaplen'}))
-          $(id).value=config.defaults[name];
-        configured=true;
+      const result=await A.local.live('config');
+      if(request!==catalogRequest||active)return;
+      config=result;
+      const select=$('live-interface'),previous=select.value,catalog=JSON.stringify(config.interfaces);
+      if(select.dataset.catalog!==catalog){
+        select.replaceChildren(new Option('選択してください',''));
+        for(const item of config.interfaces)select.add(new Option(item.label,item.name));
+        select.value=config.interfaces.some(item=>item.name===previous)?previous:'';
+        select.dataset.catalog=catalog;
       }
-      message(config.interfaces.length?'':'利用可能なネットワークがありません');
-    }catch(error){config=null;message(error.message,true);}
-    finally{busy=false;dialog.classList.remove('is-config-loading');$('live-config-skeleton').hidden=true;controls();}
+      if(!config.enabled)message(config.reason,true);
+      else if(previous&&!select.value)message('選択したネットワークが見つかりません。選び直してください',true);
+      else if(!background)message('');
+    }catch(error){if(request===catalogRequest){config=null;message(error.message,true);}}
+    finally{
+      refreshing=false;
+      if(!background){busy=false;dialog.classList.remove('is-config-loading');$('live-config-skeleton').hidden=true;}
+      controls();scheduleCatalog();
+    }
   }
   function show() {
     if(!dialog.open){opener=document.activeElement;dialog.showModal();}
@@ -59,14 +72,16 @@
     }catch(error){message(error.message,true);A.status('キャプチャの更新を再試行しています','error');}
     finally{polling=false;schedule();}
   }
+  const number=id=>$(id).value?Number($(id).value):null;
   function readOptions() {
     return {interface:$('live-interface').value,protocol:$('live-protocol').value,host:$('live-host').value.trim(),
       direction:$('live-direction').value,port:$('live-port').value?Number($('live-port').value):null,
-      duration:Number($('live-duration').value),size_mib:Number($('live-size').value),
-      packets:Number($('live-packets').value),snaplen:Number($('live-snaplen').value),bpf:$('live-bpf').value.trim()};
+      duration:number('live-duration'),size_mib:number('live-size'),
+      packets:number('live-packets'),snaplen:number('live-snaplen'),bpf:$('live-bpf').value.trim()};
   }
   async function start(event) {
     event.preventDefault();if(active||busy||!$('live-form').reportValidity())return;
+    clearTimeout(refreshTimer);catalogRequest++;
     busy=true;controls();message('キャプチャを開始中…');
     try {
       const state=await A.local.live('start',readOptions());
@@ -74,7 +89,7 @@
       if(dialog.open)dialog.close();
       A.status('キャプチャ中');
     }catch(error){
-      active=!(error.status>=400&&error.status<500);
+      active=error.capturePending===true;
       message(error.message,true);A.status(error.message,'error');
     }finally{busy=false;controls();schedule();}
   }
@@ -117,13 +132,14 @@
   $('open-live').addEventListener('click',show);
   $('live-close').addEventListener('click',()=>dialog.close());
   dialog.addEventListener('keydown',event=>{if(event.key==='Escape')event.stopPropagation();});
-  dialog.addEventListener('close',()=>{controls();opener?.focus({preventScroll:true});});
+  dialog.addEventListener('close',()=>{clearTimeout(refreshTimer);controls();opener?.focus({preventScroll:true});});
   $('live-form').addEventListener('submit',start);
-  $('live-reload').addEventListener('click',configure);
+  $('live-reload').addEventListener('click',()=>configure());
+  $('live-interface').addEventListener('change',controls);
   $('live-save').addEventListener('click',finish);
   $('stop-live').addEventListener('click',finish);
   $('live-discard').addEventListener('click',discard);
-  window.addEventListener('pagehide',()=>{closed=true;clearTimeout(timer);});
+  window.addEventListener('pagehide',()=>{closed=true;clearTimeout(timer);clearTimeout(refreshTimer);});
   window.addEventListener('beforeunload',event=>{if(active){event.preventDefault();event.returnValue='';}});
   A.live={isActive:id=>active&&record?.id===id};
   controls();

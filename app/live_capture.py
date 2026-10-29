@@ -33,10 +33,10 @@ class CaptureError(ValueError):
 class Options:
     interface: str
     expression: str
-    duration: int
-    size_mib: int
-    packets: int
-    snaplen: int
+    duration: int | None
+    size_mib: int | None
+    packets: int | None
+    snaplen: int | None
 
 
 def options(value: object, interfaces: set[str]) -> Options:
@@ -47,7 +47,7 @@ def options(value: object, interfaces: set[str]) -> Options:
         raise CaptureError('取得条件が不正です')
     interface = value.get('interface')
     if not isinstance(interface, str) or interface not in interfaces:
-        raise CaptureError('利用可能なインターフェースを選択してください')
+        raise CaptureError('選択したネットワークが見つかりません。更新して選び直してください')
     protocol = value.get('protocol', 'any')
     direction = value.get('direction', 'any')
     if protocol not in ('any', 'tcp', 'udp', 'icmp', 'arp') or direction not in ('any', 'src', 'dst'):
@@ -75,13 +75,14 @@ def options(value: object, interfaces: set[str]) -> Options:
         raise CaptureError('取得フィルターは1024文字以内で指定してください')
     if raw.strip():
         parts.append(raw.strip())
-    limits = {'duration': (1, 3600, 60), 'size_mib': (1, 64, 32),
-              'packets': (1, 1000000, 100000), 'snaplen': (64, 262144, 262144)}
+    # Validation bounds are not preconfigured capture conditions. Blank is unset.
+    limits = {'duration': (1, 3600, '自動停止'), 'size_mib': (1, 64, '容量上限'),
+              'packets': (1, 1000000, 'パケット数上限'), 'snaplen': (64, 262144, '取得長')}
     numbers = {}
-    for name, (low, high, default) in limits.items():
-        number = value.get(name, default)
-        if type(number) is not int or not low <= number <= high:
-            raise CaptureError(f'{name} は {low}〜{high} で指定してください')
+    for name, (low, high, label) in limits.items():
+        number = value.get(name)
+        if number is not None and (type(number) is not int or not low <= number <= high):
+            raise CaptureError(f'{label}は{low}〜{high}で指定してください')
         numbers[name] = number
     return Options(interface=interface, expression=' and '.join(f'({p})' for p in parts), **numbers)
 
@@ -129,9 +130,15 @@ class Session:
     def start(self):
         cfg = self.options
         command = [os.getenv('DUMPCAP_BIN', 'dumpcap'), '-q', '-n', '-p', '-i', cfg.interface,
-                   '-s', str(cfg.snaplen), '-a', f'duration:{cfg.duration}',
-                   '-a', f'filesize:{cfg.size_mib * 1024}', '-c', str(cfg.packets),
                    '-w', str(self.path)]
+        if cfg.snaplen is not None:
+            command += ['-s', str(cfg.snaplen)]
+        if cfg.duration is not None:
+            command += ['-a', f'duration:{cfg.duration}']
+        if cfg.size_mib is not None:
+            command += ['-a', f'filesize:{cfg.size_mib * 1024}']
+        if cfg.packets is not None:
+            command += ['-c', str(cfg.packets)]
         if cfg.expression:
             command += ['-f', cfg.expression]
         try:

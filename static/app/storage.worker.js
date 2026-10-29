@@ -209,12 +209,20 @@ self.onmessage=async event=>{
       await transaction(['captures','files'],'readwrite',tx=>{
         tx.objectStore('captures').delete(args.id);tx.objectStore('files').delete(args.id);
       });
-    } else if(method==='query') result=liveCapture.owns(args.id)
-      ? await liveCapture.query(args.id,args.operation,args.payload,controller.signal)
-      : await query(args.id,args.operation,args.payload,controller.signal,report);
+    } else if(method==='query') {
+      if(liveCapture.owns(args.id)) {
+        try {result=await liveCapture.query(args.id,args.operation,args.payload,controller.signal);}
+        catch(error) {
+          if(controller.signal.aborted||liveCapture.owns(args.id))throw error;
+          // Stop may finish while a detail request is in flight. The committed file remains usable.
+          const payload={...args.payload};delete payload.after;delete payload.through;
+          result=await query(args.id,args.operation,payload,controller.signal,report);
+        }
+      } else result=await query(args.id,args.operation,args.payload,controller.signal,report);
+    }
     else throw new Error('未対応の操作です');
     if(!controller.signal.aborted)self.postMessage({id,result});
   } catch(error) {
-    if(!controller.signal.aborted)self.postMessage({id,error:{name:error.name,message:error.message,status:error.status}});
+    if(!controller.signal.aborted)self.postMessage({id,error:{name:error.name,message:error.message,status:error.status,capturePending:error.capturePending}});
   } finally {requests.delete(id);}
 };

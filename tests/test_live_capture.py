@@ -63,7 +63,7 @@ def test_screen_filter_compilation():
     cfg = options({'interface': 'lo', 'protocol': 'udp', 'host': '192.0.2.1',
                    'direction': 'src', 'port': 53, 'bpf': 'not port 123'}, {'lo'})
     assert cfg.expression == '(udp) and (src host 192.0.2.1) and (port 53) and (not port 123)'
-    assert cfg.duration == 60 and cfg.size_mib == 32
+    assert cfg.duration is None and cfg.size_mib is None
     assert options({'interface': 'lo', 'protocol': 'icmp', 'host': '::1'}, {'lo'}).expression == '((icmp or icmp6)) and (host ::1)'
 
 
@@ -155,3 +155,63 @@ def test_integrated_app_discovers_without_external_service(fake_dumpcap):
         assert client.post('/api/live/sessions',headers={**key,'Origin':'https://other.example'},json={}).status_code==403
         assert client.get('/api/live/sessions/invalid',headers=key).status_code==404
         assert client.post('/api/live/sessions',headers=key,json={'interface':'lo'}).status_code==201
+
+
+def test_interfaces_refresh_and_stale_selection_rejected(fake_dumpcap, monkeypatch):
+    import app.capture_api as routes
+    current = [{'name': 'lo', 'label': 'Loopback'}]
+    monkeypatch.setattr(routes, 'interfaces', lambda: list(current))
+    with TestClient(create_app(runtime_dir=fake_dumpcap)) as client:
+        auth = headers()
+        assert client.get('/api/live/config', headers=auth).json()['interfaces'] == current
+        current.append({'name': 'new-adapter', 'label': 'New adapter'})
+        assert len(client.get('/api/live/config', headers=auth).json()['interfaces']) == 2
+        current[:] = current[1:]
+        response = client.post('/api/live/sessions', headers=auth, json={'interface': 'lo'})
+        assert response.status_code == 422
+        assert '選び直' in response.json()['detail']
+        assert not client.app.state.captures.items
+        current.clear()
+        assert client.get('/api/live/config', headers=auth).json()['enabled'] is False
+
+
+def test_capture_flags_come_from_each_request_not_startup(fake_dumpcap):
+    pool = Captures(fake_dumpcap)
+    try:
+        first = pool.start(secrets.token_hex(32), options({'interface': 'lo'}, {'lo'}))
+        wait_for(first.status, 'recording')
+        assert '-a' not in first.process.args and '-c' not in first.process.args and '-s' not in first.process.args
+        second = pool.start(secrets.token_hex(32), options({'interface': 'lo', 'duration': 7,
+            'size_mib': 3, 'packets': 11, 'snaplen': 128}, {'lo'}))
+        wait_for(second.status, 'recording')
+        assert ['-s', '128'] == second.process.args[second.process.args.index('-s'):second.process.args.index('-s')+2]
+        assert 'duration:7' in second.process.args and 'filesize:3072' in second.process.args
+        assert second.process.args[second.process.args.index('-c')+1] == '11'
+    finally:
+        pool.close()
+
+
+def test_main_lifecycle_closes_capture_process_and_transient_files(fake_dumpcap):
+    with TestClient(create_app(runtime_dir=fake_dumpcap)) as client:
+        auth = headers()
+        response = client.post('/api/live/sessions', headers=auth, json={'interface': 'lo'})
+        item = client.app.state.captures.items[response.json()['id']]
+        wait_for(item.status, 'recording')
+    assert item.process.poll() is not None
+    assert not item.root.exists()
+
+
+def test_single_service_deployment_contract():
+    import yaml
+    root = Path(__file__).resolve().parent.parent
+    config = yaml.safe_load((root / 'compose.yaml').read_text())
+    assert set(config['services']) == {'packet-capture'}
+    service = config['services']['packet-capture']
+    assert service['network_mode'] == 'host'
+    assert service['cap_drop'] == ['ALL'] and service['cap_add'] == ['NET_RAW']
+    assert 'privileged' not in service and 'volumes' not in service
+    assert not (root / 'compose.capture.yaml').exists()
+    assert not (root / 'app/capture_agent.py').exists()
+    assert not (root / 'app/capture_proxy.py').exists()
+    assert 'USER packet' in (root / 'Dockerfile').read_text()
+    assert 'CAPTURE_SOCKET' not in (root / 'app/main.py').read_text()

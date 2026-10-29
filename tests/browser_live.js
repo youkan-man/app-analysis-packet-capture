@@ -1,11 +1,14 @@
 /* Real dumpcap in the single application container, generated loopback UDP only. */
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict'),fs=require('node:fs');
+const {execFileSync}=require('node:child_process');
+const ip=(...args)=>execFileSync('sudo',['ip',...args],{stdio:'pipe'});
 (async()=>{
   const browser=await chromium.launch({headless:true});
   const a=await browser.newContext({viewport:{width:1440,height:900},permissions:['clipboard-read','clipboard-write']});
   const b=await browser.newContext({viewport:{width:1440,height:900}});
   const page=await a.newPage(),other=await b.newPage(),errors=[],sessions=[];
+  let adapterCreated=false;
   for(const p of [page,other]){p.setDefaultTimeout(30000);p.on('pageerror',e=>errors.push(e.message));}
   a.on('response',async response=>{
     if(response.url().endsWith('/api/live/sessions')&&response.request().method()==='POST'&&response.status()===201)
@@ -16,7 +19,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   const idle=()=>page.waitForFunction(()=>!document.body.classList.contains('has-pending'));
   async function configure(limit='100000') {
     await page.locator('#open-live').click();
-    await page.waitForFunction(()=>!document.querySelector('#live-start').disabled);
+    await page.waitForFunction(()=>!document.querySelector('#live-options').disabled);
     await page.locator('#live-interface').selectOption('lo');
     await page.locator('#live-protocol').selectOption('udp');
     await page.locator('#live-host').fill('127.0.0.1');
@@ -33,13 +36,15 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   try {
     await page.goto(origin,{waitUntil:'networkidle'});await other.goto(origin,{waitUntil:'networkidle'});
     // Hold the actual configuration response to photograph the modal skeleton.
-    let release,arrived;
+    let release,arrived,handled;
+    const resumed=new Promise(r=>handled=r);
     const gate=new Promise(r=>release=r),reached=new Promise(r=>arrived=r);
-    await a.route('**/api/live/config',async route=>{arrived();await gate;await route.continue();});
+    await a.route('**/api/live/config',async route=>{arrived();await gate;await route.continue();handled();});
     await page.locator('#open-live').click();await reached;
     assert(await page.locator('#live-config-skeleton').isVisible());
-    await shot('config-skeleton');release();await a.unroute('**/api/live/config');
-    await page.waitForFunction(()=>!document.querySelector('#live-start').disabled);
+    await shot('config-skeleton');release();await resumed;await a.unroute('**/api/live/config');
+    await page.waitForFunction(()=>!document.querySelector('#live-options').disabled);
+    for(const id of ['live-duration','live-size','live-packets','live-snaplen'])assert.equal(await page.locator('#'+id).inputValue(),'');
     await page.locator('#live-close').click();
     await configure();await shot('setup');
     await page.locator('#live-start').click();
@@ -78,6 +83,14 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
     await key('PageDown');assert(await page.evaluate(()=>PacketApp.state.selected>2));
     await key('End');const end=await page.evaluate(()=>PacketApp.state.selected);
     await key('ArrowUp');assert.equal(await page.evaluate(()=>PacketApp.state.selected),end-1);
+    await page.waitForFunction(()=>PacketApp.state.total>60);
+    await key('End');
+    const scrolled=await page.evaluate(()=>{window.retainedRow=document.activeElement;window.beforeCount=PacketApp.state.total;return{selected:PacketApp.state.selected,top:document.querySelector('#packet-scroll').scrollTop};});
+    assert(scrolled.top>0);
+    await page.waitForFunction(()=>PacketApp.state.total>window.beforeCount+2);
+    assert(await page.evaluate(()=>document.activeElement===retainedRow));
+    assert.equal(await page.evaluate(()=>PacketApp.state.selected),scrolled.selected);
+    assert.equal(await page.locator('#packet-scroll').evaluate(n=>n.scrollTop),scrolled.top);
     await key('Home');assert.equal(await page.evaluate(()=>PacketApp.state.selected),1);
     // The current filter is reapplied to growing data, rather than silently cleared.
     await page.locator('#toggle-filter').click();
@@ -112,15 +125,33 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
     await page.locator('#open-live').click();page.once('dialog',d=>d.accept());await page.locator('#live-discard').click();
     await page.waitForFunction(()=>PacketApp.state.captures.length===2);
     await page.locator('#live-close').click();
+    // Dynamic catalog refresh must preserve entered settings and detect removed adapters.
+    await configure();
+    assert.equal(await page.locator('#live-interface option[value="pcana-ci0"]').count(),0);
+    ip('link','add','pcana-ci0','type','dummy');adapterCreated=true;ip('link','set','pcana-ci0','up');
+    await page.waitForFunction(()=>[...document.querySelector('#live-interface').options].some(o=>o.value==='pcana-ci0'));
+    await page.locator('#live-interface').selectOption('pcana-ci0');await page.locator('#live-port').fill('49322');
+    await page.locator('#live-reload').click();await page.waitForFunction(()=>!document.querySelector('#live-options').disabled);
+    assert.equal(await page.locator('#live-interface').inputValue(),'pcana-ci0');
+    assert.equal(await page.locator('#live-port').inputValue(),'49322');await shot('dynamic-network');
+    ip('link','del','pcana-ci0');adapterCreated=false;
+    await page.waitForFunction(()=>![...document.querySelector('#live-interface').options].some(o=>o.value==='pcana-ci0'));
+    assert.equal(await page.locator('#live-interface').inputValue(),'');assert(await page.locator('#live-start').isDisabled());
+    await shot('network-removed');await page.locator('#live-close').click();
     await page.setViewportSize({width:390,height:844});await page.locator('#font-size').selectOption('14');
-    await page.locator('#open-live').click();await page.waitForFunction(()=>!document.querySelector('#live-start').disabled);
+    await page.locator('#open-live').click();await page.waitForFunction(()=>!document.querySelector('#live-options').disabled);
     const box=await page.locator('#live-dialog').boundingBox();assert(box.x>=0&&box.x+box.width<=391&&box.y+box.height<=844);
     assert.doesNotMatch(await page.locator('#live-dialog').textContent(),/Compose|Docker|capture-agent|sidecar|経過/);
-    await shot('mobile');assert.deepEqual(errors,[]);
+    await shot('mobile');
+    const unavailable=await b.newPage();await unavailable.goto('http://127.0.0.1:18082/',{waitUntil:'networkidle'});
+    await unavailable.locator('#open-live').click();await unavailable.locator('#live-status.is-error').waitFor();
+    assert(await unavailable.locator('#live-start').isDisabled());
+    assert.doesNotMatch(await unavailable.locator('#live-status').textContent(),/Compose|Docker|dumpcap|NET_RAW|capture-agent/);
+    await unavailable.screenshot({path:'artifacts/capture-unavailable.png'});assert.deepEqual(errors,[]);
     fs.writeFileSync('artifacts/live-capture-checks.json',JSON.stringify({integrated:true,realDumpcap:true,createdOnStart:true,
       modalCloses:true,realtimeBeforeStop:true,stableFileId:true,stableSelection:true,stableRow:true,keyboard:true,
-      currentFilterRetained:true,skeleton:true,private:true,automaticStop:true,reload:true,errors},null,2));
+      currentFilterRetained:true,skeleton:true,private:true,automaticStop:true,reload:true,dynamicAdapters:true,noFixedLimits:true,errors},null,2));
     console.log('Realtime capture, atomic local append, keyboard and integrated application passed');
   }catch(error){await shot('failure').catch(()=>{});fs.writeFileSync('artifacts/live-failure.txt',String(error)+'\n'+JSON.stringify(errors));throw error;}
-  finally{await browser.close();}
+  finally{if(adapterCreated){try{ip('link','del','pcana-ci0');}catch{}}await browser.close();}
 })().catch(error=>{console.error(error);process.exit(1);});

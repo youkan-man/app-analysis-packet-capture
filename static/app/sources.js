@@ -15,7 +15,7 @@
       const open = button("", () => openCapture(capture), "capture-open");
       open.append(el("strong", "", capture.filename), el("span", "", capture.format.toUpperCase() + " · " + formatSize(capture.size)));
       open.title = capture.filename;
-      row.classList.toggle('is-capturing', A.live?.isActive(capture.id) || capture.phase === 'recording');
+      row.classList.toggle('is-capturing', Boolean(A.live?.isActive(capture.id)));
       const remove = button("×", async event => {
         event.stopPropagation();
         if (!confirm("このブラウザのローカルファイルを削除しますか？\n" + capture.filename)) return;

@@ -9,7 +9,7 @@
     const request=pending.get(data.id);if(!request)return;
     if (data.phase) {request.onProgress?.(data.phase); return;}
     pending.delete(data.id);request.cleanup();
-    if(data.error){const error=new Error(data.error.message);error.name=data.error.name;error.status=data.error.status;request.reject(error);}
+    if(data.error){const error=new Error(data.error.message);error.name=data.error.name;error.status=data.error.status;error.capturePending=data.error.capturePending;request.reject(error);}
     else request.resolve(data.result);
   };
   worker.onerror=worker.onmessageerror=()=>{

@@ -20,7 +20,11 @@
     body.dataset.range = `${start}:${end}`;
     const existing=new Map([...body.querySelectorAll('tr[data-number]')].filter(row=>row.dataset.capture===state.active?.id).map(row=>[Number(row.dataset.number),row]));
     const desired=[];
-    if(start)desired.push(spacer(start*ROW_HEIGHT));
+    const gap=(name,height)=>{
+      const row=body.querySelector(`[data-spacer="${name}"]`)||spacer(height);
+      row.dataset.spacer=name;row.firstChild.style.height=height+'px';return row;
+    };
+    if(start)desired.push(gap('top',start*ROW_HEIGHT));
     for(let index=start;index<end;index++) {
       const packet=state.packets[index],row=existing.get(packet.number)||packetRow(packet);
       row.classList.toggle('selected',packet.number===state.selected);
@@ -34,7 +38,7 @@
       pin.setAttribute('aria-label',pinned?'ピンを解除':'ピン留め');
       desired.push(row);
     }
-    if(end<state.packets.length)desired.push(spacer((state.packets.length-end)*ROW_HEIGHT));
+    if(end<state.packets.length)desired.push(gap('bottom',(state.packets.length-end)*ROW_HEIGHT));
     // Retain existing row/cell nodes: live appends must not destroy text selections or focus.
     let cursor=body.firstChild;
     for(const row of desired) {

@@ -35,8 +35,12 @@ async def body(request):
 @router.get('/config')
 def config(request: Request):
     token(request)
-    return {'enabled': True, 'interfaces': interfaces(),
-            'defaults': {'duration': 60, 'size_mib': 32, 'packets': 100000, 'snaplen': 262144}}
+    try:
+        items = interfaces()
+        return {'enabled': bool(items), 'interfaces': items,
+                'reason': '' if items else '利用可能なネットワークがありません。更新して確認してください'}
+    except CaptureError as error:
+        return {'enabled': False, 'interfaces': [], 'reason': str(error)}
 
 
 @router.post('/sessions', status_code=201)
